@@ -1,0 +1,13 @@
+extends layout
+
+block scripts
+  script(src='/javascripts/PxLoader.js')
+  script(src='/javascripts/PxLoaderImage.js')
+  script(src='/javascripts/kinetic-v4.3.3.min.js')
+  script(src='/javascripts/jquery-1.9.1.min.js')
+  script(src='/javascripts/game.js')
+
+block content
+  h1= title
+  p Welcome to #{title}
+  #game-container
