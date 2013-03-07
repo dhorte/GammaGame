@@ -4,38 +4,41 @@
  * bounds of the base circle without affecting how the mouse interacts with
  * the unit overall.
  */
-var create_unit = function(config) {
+var createUnit = function(config) {
     var circle = new Kinetic.Circle({
         x: 0,
         y: 0,
-        radius: Math.floor(config.baseSize / 2),
-        fill: 'red',
+        radius: config.radius,
+        fill: config.fill,
         stroke: 'black',
-        strokeWidth: config.baseStroke
+        strokeWidth: 1,
+
+        /* Game data */
+        gName: config.gName,
+        gHex: config.gHex
     });
 
-    var image = new Kinetic.Image({
-        x: -config.baseSize / 2,
-        y: -config.baseSize / 2,
-        image: config.unit_img,
-        width: config.baseSize + 10,
-        height: config.baseSize - 10,
-    });
+    // var image = new Kinetic.Image({
+    //     x: -config.baseSize / 2,
+    //     y: -config.baseSize / 2,
+    //     image: config.unit_img,
+    //     width: config.baseSize + 10,
+    //     height: config.baseSize - 10,
+    // });
 
     var group = new Kinetic.Group({
         x: config.x,
-        y: config.y,
-        draggable: true,
-        dragBoundFunc: config.dragBoundFunc(circle.getRadius())
+        y: config.y
     });
+    group.on('click', config.clickFunc);
 
     group.add(circle);
-    group.add(image);
-    group.drawHit = function() {
-        if(this.isVisible() && this.isListening()) {
-            circle.drawHit();
-        }
-    };
+    // group.add(image);
+    // group.drawHit = function() {
+    //     if(this.isVisible() && this.isListening()) {
+    //         circle.drawHit();
+    //     }
+    // };
     
     return group;
 }
@@ -56,19 +59,48 @@ var adjustPos = function(pos, bounds) {
     };
 }
 
+var PLAINS = {
+    name: 'plains',
+    color: '#40FF00'
+}
+var FOREST = {
+    name: 'forest',
+    color: 'green'
+}
+var HILLS = {
+    name: 'hills',
+    color: 'brown'
+}
+
+var randomType = function() {
+    var num = Math.floor( Math.random() * 3 )
+
+    if( num == 0 ) return PLAINS
+    else if( num == 1 ) return FOREST
+    else if( num == 2 ) return HILLS
+    else return 'UNKNOWN'
+}
+
+
 $(document).ready(function() {
 
     var sinPi6 = Math.sin( Math.PI / 6 );
     var sinPi3 = Math.sin( Math.PI / 3 );
 
-    var hexRows = 20;
-    var hexCols = 20;
-    var hexRad = 24;
+    var hexRows = 15;  // Should always be an odd number to make nice map corners.
+    var hexCols = 15;  // Size of longer rows. Even numbered rows will have one less.
+    var hexRad = 30;
     var halfWidth = sinPi3 * hexRad;
     var hexWidth = 2 * halfWidth;
 
     var mapHeight = (hexRows * hexRad * 3 / 2) + (hexRad / 2);
-    var mapWidth = hexWidth * hexCols + halfWidth;
+    var mapWidth = hexWidth * hexCols;
+
+    /* GLOBAL GAME VARIABLES. */
+    var hexes = [];
+
+
+    /* UI Elements */
 
     var stage = new Kinetic.Stage({
         container: 'game-container',
@@ -121,37 +153,83 @@ $(document).ready(function() {
     var yCoord = rowOffset;
     while( rowCount < hexRows ) {
 
-        if( rowCount % 2 == 0 ) colOffset = halfWidth;
+        var hexRow = [];
+
+        /* Set the column offset. */
+        if( rowCount % 2 == 1 ) colOffset = halfWidth;
         else colOffset = hexWidth;
+
+        /* 
+         * Set the number of hexs per row.
+         * If the odd numbered rows are one longer than the even numbered rows, the
+         * corners of the map turn out nicer.
+         */
+        if( rowCount % 2 == 0 ) hexCols -= 1
+        else hexCols += 1
 
         while( colCount < hexCols ) {
 
             var xCoord = colCount * hexWidth + colOffset;
 
-            console.log( "" + colCount + ", " + rowCount + " = hex(" + xCoord + ", " + yCoord + ")" );
+            var gType = randomType();
 
             var hex = new Kinetic.RegularPolygon({
                 x: xCoord,
                 y: yCoord,
                 sides: 6,
                 radius: hexRad,
-                fill: 'red',
+                fill: gType.color,
                 stroke: 'black',
-                strokeWidth: 1
+                strokeWidth: 1,
+
+                /* Data for game. */
+                gRow: rowCount,
+                gCol: colCount,
+                gDiag: colCount + Math.floor( rowCount / 2 ),
+                gType: gType.name
             });
+            hex.on('click', function(event) {
+                var hex = event.shape
+                alert( "Clicked on hex. row=" + hex.attrs.gRow + " col=" + hex.attrs.gCol + " diag=" + hex.attrs.gDiag )
+            });
+
             mapLayer.add(hex);
 
             /* Update values. */
+            hexRow.push(hex);
             colCount += 1;
         }
 
         /* Update values. */
+        hexes.push(hexRow);
         yCoord += hexRad * 1.5;
         rowCount += 1;
         colCount = 0;
 
-        console.log( "rowCount = " + rowCount );
     }
+
+    /*
+     * Add some units to the map layer.
+     */
+    var unitClickFunc = function(event) {
+        var unit = event.shape;
+        var hex = unit.attrs.gHex;
+        complexText.setText( unit.attrs.gName + '\nrow: ' + hex.attrs.gRow + '\ncol: ' + hex.attrs.gCol + '\ndiag: ' + hex.attrs.gDiag );
+        uiLayer.draw();
+        // alert( "Clicked on unit at hex. row=" + hex.attrs.gRow + " col=" + hex.attrs.gCol + " diag=" + hex.attrs.gDiag );
+    }
+
+    var targetHex = hexes[3][2];
+    var unit1 = createUnit({
+        x: targetHex.attrs.x,
+        y: targetHex.attrs.y,
+        radius: hexRad * 0.7,
+        fill: 'red',
+        gName: 'swordsmen',
+        gHex: targetHex,
+        clickFunc: unitClickFunc
+    });
+    mapLayer.add(unit1);
     
     /* 
      * The UI layer.
@@ -162,34 +240,40 @@ $(document).ready(function() {
     // since this text is inside of a defined area, we can center it using
     // align: 'center'
     var complexText = new Kinetic.Text({
-        x: 100,
-        y: 60,
-        text: 'COMPLEX TEXT\n\nAll the world\'s a stage, and all the men and women merely players. They have their exits and their entrances.',
+        x: 0,
+        y: 200,
+        text: 'COMPLEX TEXT\n\nAll the world\'s a stage, and all the men and women merely players.',
         fontSize: 18,
         fontFamily: 'Calibri',
         fill: '#555',
-        width: 380,
+        width: 200,
         padding: 20,
         align: 'center'
     });
 
     var rect = new Kinetic.Rect({
-        x: 100,
-        y: 60,
+        x: 0,
+        y: 200,
         stroke: '#555',
         strokeWidth: 5,
         fill: '#ddd',
-        width: 380,
+        width: 200,
         height: complexText.getHeight(),
         shadowColor: 'black',
         shadowBlur: 10,
         shadowOffset: [10, 10],
         shadowOpacity: 0.2,
-        cornerRadius: 10
+        cornerRadius: 10,
+        opacity: 0.5
     });
 
     uiLayer.add(rect);
     uiLayer.add(complexText);
+
+
+    /*
+     * Resource loader.
+     */
 
     var loader = new PxLoader();
     var ufoImg = loader.addImage('images/ufo.png'); 

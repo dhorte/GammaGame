@@ -4,7 +4,7 @@
  */
 
 exports.index = function(req, res){
-  res.render('index', { title: 'Expresso' });
+  res.render('index', { title: 'Warlock' });
 };
 
 exports.kinetic = function(req, res){
