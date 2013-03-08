@@ -1,3 +1,133 @@
+/* Handle all clicks on UI and map elements. */
+var clickFunc = function(event) {
+    var elem = event.shape;
+
+    /* After a drag event, we don't want to do any clicking. */
+    if( blockClick ) {
+        blockClick = false;
+        return;
+    }
+
+    if( elem.attrs.warlock.uiNode == true ) {
+        console.log( 'Click on a UI element.' );
+    }
+    else if( elem.attrs.warlock.mapNode == true ) {
+        console.log( 'Click on a map element.' );
+
+        var hex = elem.attrs.warlock.hex;
+        var attrs = hex.attrs.warlock;
+
+        /* Click on a unit. */
+        if( attrs.unit != null ) {
+            selectUnit(attrs.unit);
+        }
+
+        /* Click on a hex. */
+        else {
+            /* Left click */
+            if( event.which == LEFT_CLICK ) {
+                unselectUnit();
+            }
+            
+            // else if( event.which == RIGHT_CLICK ) {
+            else {
+                moveSelectedUnit();
+            }
+        }
+    }
+    else {
+        console.log( 'Click unknown element.' );
+        for( key in elem.attrs ) {
+            console.log( key + " -> " + elem.attrs.warlock[key] );
+        }
+    }
+    
+    redraw();
+}
+
+var dragStartFunc = function(event) {
+    blockClick = true;
+}
+
+/* No guarantee is made as to the order of the neighbors. */
+var neighbors = function(hex) {
+    var row = hex.attrs.gRow;
+    var col = hex.attrs.gCol;
+
+    var nbs = []
+
+    if( col > 0 ) nbs.push( hexes[row][col - 1] );
+    if( row % 2 == 0 ) {
+        if( col < hexCols - 2 ) nbs.push( hexes[row][col + 1] );
+        if( row > 0 ) {
+            nbs.push( hexes[row - 1][col    ] );
+            nbs.push( hexes[row - 1][col + 1] );
+        }
+        if( row < hexRows - 1 ) {
+            nbs.push( hexes[row + 1][col    ] );
+            nbs.push( hexes[row + 1][col + 1] );
+        }
+    }
+    else {
+        if( col < hexCols - 1 ) {
+            nbs.push( hexes[row    ][col + 1] );
+            nbs.push( hexes[row - 1][col    ] );
+            nbs.push( hexes[row + 1][col    ] );
+        }
+        if( col > 0 ) {
+            nbs.push( hexes[row - 1][col - 1] );
+            nbs.push( hexes[row + 1][col - 1] );
+        }
+    }
+
+    return nbs;
+}
+
+
+var moveSelectedUnit = function(dest) {
+    if( selectedUnit != null && dest !== undefined && $.inArray(dest, moveHexes) ) {
+        console.log( "moving to " + JSON.stringify(dest) );
+        selectedUnit.moveTo(dest);
+        selectUnit(selectedUnit); // clear the moveHexes and get new ones
+    }
+    else {
+        alert( "not moving" );
+    }
+}
+
+var unselectUnit = function() {
+    console.log( "unselectUnit" );
+
+    selectedUnit = null;
+    for( index in moveHexes ) {
+        moveHexes[index].attrs.gBlueHighlight.setVisible(false);
+    }
+    moveHexes = [];
+    clearUnitDetails();
+}
+
+var selectUnit = function(unit) {
+    console.log( "selectUnit" );
+
+    if( selectedUnit != null ) {
+        unselectUnit();
+    }
+    selectedUnit = unit;
+
+    /* Display the selected unit's stats. */
+    var unitAttrs = unit.attrs.warlock;
+    var hexAttrs = unitAttrs.hex.attrs.warlock;
+    setUnitDetails( unitAttrs.name + '\nrow: ' + hexAttrs.row + '\ncol: ' + hexAttrs.col + '\ndiag: ' + hexAttrs.diag );
+
+    /* Display the selected unit's movement potential. */
+    var nbs = neighbors(unitAttrs.hex);
+    for (i in nbs) {
+        nbs[i].attrs.gBlueHighlight.setVisible(true);
+        moveHexes.push(nbs[i]);
+    }
+}
+
+
 /*
  * Create a special Kinetic.Group that has a drawHit function that only hits on
  * the circle at its base. This allows the image drawn on top to overlap the
@@ -5,18 +135,15 @@
  * the unit overall.
  */
 var createUnit = function(config) {
-    var circle = new Kinetic.Circle({
-        x: 0,
-        y: 0,
-        radius: config.radius,
+    var basic_attrs = {
+        radius: hexRad * 0.7,
         fill: config.fill,
         stroke: 'black',
         strokeWidth: 1,
+    };
 
-        /* Game data */
-        gName: config.gName,
-        gHex: config.gHex
-    });
+    $.extend(config, basic_attrs);
+    var circle = new Kinetic.Circle(config);
 
     // var image = new Kinetic.Image({
     //     x: -config.baseSize / 2,
@@ -26,21 +153,14 @@ var createUnit = function(config) {
     //     height: config.baseSize - 10,
     // });
 
-    var group = new Kinetic.Group({
-        x: config.x,
-        y: config.y
-    });
-    group.on('click', config.clickFunc);
-
-    group.add(circle);
+    config.warlock.hex.add(circle);
+    config.warlock.hex.attrs.warlock.unit = circle;
     // group.add(image);
     // group.drawHit = function() {
     //     if(this.isVisible() && this.isListening()) {
     //         circle.drawHit();
     //     }
     // };
-    
-    return group;
 }
 
 /*
@@ -84,29 +204,19 @@ var randomType = function() {
 
 $(document).ready(function() {
 
-    var sinPi6 = Math.sin( Math.PI / 6 );
-    var sinPi3 = Math.sin( Math.PI / 3 );
+    /* Block the browser context menu on the canvas. */
+    document
+        .querySelector('#game-container')
+        .addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
 
-    var hexRows = 15;  // Should always be an odd number to make nice map corners.
-    var hexCols = 15;  // Size of longer rows. Even numbered rows will have one less.
-    var hexRad = 30;
-    var halfWidth = sinPi3 * hexRad;
-    var hexWidth = 2 * halfWidth;
-
-    var mapHeight = (hexRows * hexRad * 3 / 2) + (hexRad / 2);
-    var mapWidth = hexWidth * hexCols;
-
-    /* GLOBAL GAME VARIABLES. */
-    var hexes = [];
-
-
-    /* UI Elements */
+    /* Initialize the UI */
 
     var stage = new Kinetic.Stage({
         container: 'game-container',
         width: 720,
         height: 350,
-        // draggable: true,
         dragBoundFunc: function(pos) {
             return adjustPos(pos, {
                 maxx: 0,
@@ -133,6 +243,7 @@ $(document).ready(function() {
             });
         }
     });
+    mapLayer.on('dragstart', dragStartFunc);
 
     /* Put a background on the map layer. */
     var background = new Kinetic.Rect({
@@ -151,6 +262,7 @@ $(document).ready(function() {
     var rowOffset = (0.5 + sinPi6) * hexRad;
     var colOffset = 0;
     var yCoord = rowOffset;
+    var numCols = hexCols;
     while( rowCount < hexRows ) {
 
         var hexRow = [];
@@ -164,35 +276,79 @@ $(document).ready(function() {
          * If the odd numbered rows are one longer than the even numbered rows, the
          * corners of the map turn out nicer.
          */
-        if( rowCount % 2 == 0 ) hexCols -= 1
-        else hexCols += 1
+        if( rowCount % 2 == 0 ) numCols -= 1
+        else numCols += 1
 
-        while( colCount < hexCols ) {
+        while( colCount < numCols ) {
 
             var xCoord = colCount * hexWidth + colOffset;
 
             var gType = randomType();
 
-            var hex = new Kinetic.RegularPolygon({
-                x: xCoord,
-                y: yCoord,
+            var base = new Kinetic.RegularPolygon({
                 sides: 6,
                 radius: hexRad,
                 fill: gType.color,
                 stroke: 'black',
                 strokeWidth: 1,
-
-                /* Data for game. */
-                gRow: rowCount,
-                gCol: colCount,
-                gDiag: colCount + Math.floor( rowCount / 2 ),
-                gType: gType.name
-            });
-            hex.on('click', function(event) {
-                var hex = event.shape
-                alert( "Clicked on hex. row=" + hex.attrs.gRow + " col=" + hex.attrs.gCol + " diag=" + hex.attrs.gDiag )
+                warlock: {}
             });
 
+            var blueHighlight = new Kinetic.RegularPolygon({
+                sides: 6,
+                radius: hexRad * 0.95,
+                stroke: 'blue',
+                strokeWidth: 1.5,
+                visible: false,
+                warlock: {}
+            });
+
+            var redHighlight = new Kinetic.RegularPolygon({
+                sides: 6,
+                radius: hexRad * 0.95,
+                stroke: 'red',
+                strokeWidth: 1.5,
+                visible: false,
+                warlock: {}
+            });
+
+            var hex = new Kinetic.Group({
+                x: xCoord,
+                y: yCoord,
+
+                warlock: {
+                    mapNode: true,
+                    hex: this,
+                    base: base,
+                    unit: null,
+                    blueHighlight: blueHighlight,
+                    redHighlight: redHighlight,
+                    row: rowCount,
+                    col: colCount,
+                    diag: colCount + Math.floor( rowCount / 2 ),
+                    terrain: gType.name
+                }
+            });
+
+            /*
+             * These are details that should be put into the warlock dict of all
+             * children of the hex group.
+             */
+            var details = {
+                mapNode: true,
+                hex: hex
+            }
+
+            $.extend( base.attrs.warlock, details );
+            $.extend( blueHighlight.attrs.warlock, details );
+            $.extend( redHighlight.attrs.warlock, details );
+
+            /* Event binding */
+            hex.on('click', clickFunc);
+
+            /* Join everything together. */
+            hex.add(base);
+            hex.add(blueHighlight);
             mapLayer.add(hex);
 
             /* Update values. */
@@ -208,28 +364,39 @@ $(document).ready(function() {
 
     }
 
+
     /*
      * Add some units to the map layer.
      */
-    var unitClickFunc = function(event) {
-        var unit = event.shape;
-        var hex = unit.attrs.gHex;
-        complexText.setText( unit.attrs.gName + '\nrow: ' + hex.attrs.gRow + '\ncol: ' + hex.attrs.gCol + '\ndiag: ' + hex.attrs.gDiag );
-        uiLayer.draw();
-        // alert( "Clicked on unit at hex. row=" + hex.attrs.gRow + " col=" + hex.attrs.gCol + " diag=" + hex.attrs.gDiag );
-    }
 
     var targetHex = hexes[3][2];
     var unit1 = createUnit({
-        x: targetHex.attrs.x,
-        y: targetHex.attrs.y,
-        radius: hexRad * 0.7,
-        fill: 'red',
-        gName: 'swordsmen',
-        gHex: targetHex,
-        clickFunc: unitClickFunc
+        /* Unit appearance. */
+        fill: 'red',  // This should be the color of the controlling player.
+
+        /* Unit stats. */
+        warlock: {
+            mapNode: true,
+            hex: targetHex,
+               
+            name: 'warriors',
+            base: {
+                move: 6,
+                hp: 24
+            },
+
+            current: {
+                move: 6,
+                hp: 24
+            },
+
+            moveCost: {
+                plains: 1,
+                forest: 2,
+                hills: 3
+            }
+        }
     });
-    mapLayer.add(unit1);
     
     /* 
      * The UI layer.
@@ -270,6 +437,22 @@ $(document).ready(function() {
     uiLayer.add(rect);
     uiLayer.add(complexText);
 
+    /*
+     * Define global functions.
+     */
+
+    redraw = function() {
+        mapLayer.draw();
+        uiLayer.draw();
+    }
+
+    setUnitDetails = function(string) {
+        complexText.setText( string );
+    }
+
+    clearUnitDetails = function() {
+        complexText.setText( "" );
+    }
 
     /*
      * Resource loader.
