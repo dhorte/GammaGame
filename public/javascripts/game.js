@@ -31,7 +31,7 @@ var clickFunc = function(event) {
             
             // else if( event.which == RIGHT_CLICK ) {
             else {
-                moveSelectedUnit();
+                moveSelectedUnit(hex);
             }
         }
     }
@@ -51,8 +51,10 @@ var dragStartFunc = function(event) {
 
 /* No guarantee is made as to the order of the neighbors. */
 var neighbors = function(hex) {
-    var row = hex.attrs.gRow;
-    var col = hex.attrs.gCol;
+    var attrs = hex.attrs.warlock
+
+    var row = attrs.row;
+    var col = attrs.col;
 
     var nbs = []
 
@@ -84,14 +86,26 @@ var neighbors = function(hex) {
 }
 
 
-var moveSelectedUnit = function(dest) {
-    if( selectedUnit != null && dest !== undefined && $.inArray(dest, moveHexes) ) {
-        console.log( "moving to " + JSON.stringify(dest) );
-        selectedUnit.moveTo(dest);
+var moveSelectedUnit = function(hex) {
+    console.log( "moveSelectedUnit" );
+    // console.log( selectedUnit != null );
+    // console.log( hex !== undefined );
+    // console.log( $.inArray(hex, moveHexes) );
+
+    if( selectedUnit != null && hex !== undefined && $.inArray(hex, moveHexes) ) {
+        var hexAttrs = hex.attrs.warlock;
+        var oldHex = selectedUnit.attrs.warlock.hex;
+        var oldHexAttrs = oldHex.attrs.warlock;
+
+        console.log( "moving to " + hexAttrs.row + ", " + hexAttrs.col );
+        oldHexAttrs.unit = null;
+        hexAttrs.unit = selectedUnit;
+        selectedUnit.attrs.warlock.hex = hex;
+        selectedUnit.moveTo(hex);
         selectUnit(selectedUnit); // clear the moveHexes and get new ones
     }
     else {
-        alert( "not moving" );
+        console.log( "Not moving" );
     }
 }
 
@@ -99,8 +113,8 @@ var unselectUnit = function() {
     console.log( "unselectUnit" );
 
     selectedUnit = null;
-    for( index in moveHexes ) {
-        moveHexes[index].attrs.gBlueHighlight.setVisible(false);
+    for (i in moveHexes) {
+        moveHexes[i].attrs.warlock.blueHighlight.setVisible(false);
     }
     moveHexes = [];
     clearUnitDetails();
@@ -122,7 +136,7 @@ var selectUnit = function(unit) {
     /* Display the selected unit's movement potential. */
     var nbs = neighbors(unitAttrs.hex);
     for (i in nbs) {
-        nbs[i].attrs.gBlueHighlight.setVisible(true);
+        nbs[i].attrs.warlock.blueHighlight.setVisible(true);
         moveHexes.push(nbs[i]);
     }
 }
@@ -369,7 +383,7 @@ $(document).ready(function() {
      * Add some units to the map layer.
      */
 
-    var targetHex = hexes[3][2];
+    var targetHex = hexes[2][2];
     var unit1 = createUnit({
         /* Unit appearance. */
         fill: 'red',  // This should be the color of the controlling player.
