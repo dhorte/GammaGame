@@ -134,13 +134,46 @@ var selectUnit = function(unit) {
     setUnitDetails( unitAttrs.name + '\nrow: ' + hexAttrs.row + '\ncol: ' + hexAttrs.col + '\ndiag: ' + hexAttrs.diag );
 
     /* Display the selected unit's movement potential. */
-    var nbs = neighbors(unitAttrs.hex);
-    for (i in nbs) {
-        nbs[i].attrs.warlock.blueHighlight.setVisible(true);
-        moveHexes.push(nbs[i]);
+    // var nbs = neighbors(unitAttrs.hex);
+    var moves = calculateMovement(unit);
+    for (i in moves) {
+        moves[i].attrs.warlock.blueHighlight.setVisible(true);
+        moveHexes.push(moves[i]);
     }
 }
 
+/* Calculate the cost for @param unit to move into @param hex. */
+var moveCost = function(unit,hex) {
+    return unit.attrs.warlock.moveCost[hex.attrs.warlock.terrain];
+}
+
+/* Calculate the set of hexes that @param unit can move to given its current movement. */
+var calculateMovement = function(unit) {
+    console.log( "calculateMovement" );
+
+    var attrs = unit.attrs.warlock;
+
+    var moves = [];
+    var map = {};
+
+    moves.push(attrs.hex); // can always move to current hex.
+
+    if( attrs.current.move <= 0 ) return moves;
+
+    /* Do immediate neighbors first. */
+    var move = attrs.current.move;
+    var nbs = neighbors(attrs.hex);
+    for (i in nbs) {
+        var nb = nbs[i];
+        var result = move - moveCost(unit,nb);
+        if( result >= 0 ) {
+            map[nb] = result;
+            moves.push(nb);
+        }
+    }
+
+    return moves
+}
 
 /*
  * Create a special Kinetic.Group that has a drawHit function that only hits on

@@ -28,6 +28,7 @@ app.configure('development', function(){
 });
 
 app.get('/', routes.index);
+app.get('/namespace', routes.namespace);
 app.get('/kinetic', routes.kinetic);
 app.get('/users', user.list);
 
