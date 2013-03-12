@@ -35,6 +35,7 @@
     Warlock.hexes = [];            // 2d array of all hexes on the map.
     Warlock.selectedUnit = null;   // The currently selected unit.
     Warlock.moveHexes = [];        // The hexes that the selected unit can move to.
+    Warlock.moveRemain = {};       // For each hex in moveHexes, cost of moving there.
     Warlock.blockClick = false;    // Used to prevent a click event after dragging.
 
 })( window.Warlock = window.Warlock || {} );
@@ -238,6 +239,7 @@
                 row: rowCount,
                 col: colCount,
                 diag: colCount + Math.floor( rowCount / 2 ),
+                hashKey: '' + rowCount + ',' + colCount,
 
                 /* Do additional adding logic here, and add to the group. */
                 add: function(elem) {
@@ -321,8 +323,93 @@
  * selectUnit -> 
  * unselectUnit ->
  * moveSelectedUnit ->
+ * moveCost(unit, hex) -> cost for particular unit to move onto given hex
  */
 (function( Warlock, undefined ) {
+    Warlock.moveCost = function(unit, hex) {
+        return 1;
+    };
+
+    Warlock.calculateMovement = function(unit) {
+        var done = [];
+        var queue = [unit.warlock.hex];
+        var remain = {};
+        var todo = {};
+        todo[unit.warlock.current.move] = [unit.warlock.hex];  // Start with the current hex.
+        var currentlyHandling = unit.warlock.current.move;
+
+        var movable = [];
+
+        /* 
+         * Movement remaining is guaranteed to decrease at each step.
+         * If we always work on the hexes that have the highest remaining movement,
+         * then we will never repeat any hexes, and each hex will get the maximum value
+         * of remaining movement the first time it is visited.
+         */
+        var nextRange = function() {
+            console.assert( typeof currentlyHandling === "number" );
+
+            var max = -1;
+            for( key in todo ) {
+                var value = parseInt(key, 10);
+                if( value < currentlyHandling && value > max ) {
+                    max = value;
+                }
+            }
+
+            currentlyHandling = max;
+        };
+
+        var addHex = function(hex, remaining) {
+            if( todo[remaining] === undefined ) {
+                todo[remaining] = [];
+            }
+            todo[remaining].push(hex);
+            queue.push(hex);
+        };
+
+        while( currentlyHandling >= 0 ) {
+            console.log( 'Currently handling: ' + currentlyHandling );
+            for( i in todo[currentlyHandling] ) {
+                var hex = todo[currentlyHandling][i];
+                done.push(hex);
+                remain[hex.warlock.hashKey] = currentlyHandling;
+
+                /* Find any neighbors that haven't been done, and get ready to do them. */
+                var nbs = hex.warlock.getNeighbors();
+                for( n in nbs ) {
+                    if( $.inArray(nbs[n], queue) == -1 ) {
+                        var nbCost = Warlock.moveCost(unit, nbs[n]);
+                        if( nbCost <= currentlyHandling ) {
+                            addHex(nbs[n], currentlyHandling - nbCost);
+                        }
+                    }
+                }
+
+                hex.warlock.ik = currentlyHandling;
+
+                if( done.length < 10 ) {
+                    console.log( "REPORT FOR: " + done[done.length - 1].getName() );
+                    for( i in done ) {
+                        console.log( 'move: ' + done[i].getName() + ' -> ' + done[i].warlock.ik + ' -> ' + remain[done[i].warlock.hashKey] );
+                    }
+                }
+
+            }
+
+            nextRange();
+        };
+
+        for( i in done ) {
+            console.log( 'move: ' + done[i].getName() + ' -> ' + done[i].warlock.ik + ' -> ' + remain[done[i].warlock.hashKey] );
+        }
+
+        return {
+            hexes: done,
+            remain: remain
+        };
+    };
+
     Warlock.unselectUnit = function() {
         console.log( "unselectUnit" );
         Warlock.selectedUnit = null;
@@ -330,6 +417,7 @@
             Warlock.moveHexes[i].warlock.blueHighlight.setVisible(false);
         }
         Warlock.moveHexes = [];
+        Warlock.moveRemain = {};
         Warlock.ui.clearUnitDetails();
     };
 
@@ -346,8 +434,9 @@
 
         /* Display the selected unit's movement potential. */
         var hex = unit.warlock.clickDelegation;
-        Warlock.moveHexes = hex.warlock.getNeighbors();
-        console.assert( Warlock.moveHexes.size >= 3 );
+        var movement = Warlock.calculateMovement(unit, hex);
+        Warlock.moveHexes = movement.hexes;
+        Warlock.moveRemain = movement.remain;
         for( i in Warlock.moveHexes ) {
             Warlock.moveHexes[i].warlock.blueHighlight.setVisible(true);
         }
@@ -363,9 +452,10 @@
         var unit = Warlock.selectedUnit;
 
         if( unit != null && $.inArray(destHex, Warlock.moveHexes) >= 0 ) {
+            console.log( "moveRemain: " + Warlock.moveRemain[destHex.warlock.hashKey] );
+            unit.warlock.current.move = Warlock.moveRemain[destHex.warlock.hashKey];
             unit.warlock.hex.warlock.moveUnit(destHex);
             Warlock.selectUnit(unit);
-            console.log( "TODO: update the unit's movement points." );
 
             /* Post-conditions */
             console.assert( unit.warlock.hex == destHex );
@@ -397,11 +487,11 @@
     Warlock.defaultUnit = Warlock.createUnit({
         name: 'warriors',
         base: {
-            move: 6,
+            move: 4,
             hp: 24
         },
         current: {
-            move: 6,
+            move: 4,
             hp: 24
         }
     });
