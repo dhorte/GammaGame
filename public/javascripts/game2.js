@@ -149,6 +149,17 @@
         Warlock.ui.redraw();
     };
 
+    Warlock.mouseOverFunc = function(event) {
+        var hex = event.shape.warlock.hex;
+        hex.warlock.mouseOver.setVisible(true);
+        Warlock.ui.redraw();
+    };
+    Warlock.mouseOutFunc = function(event) {
+        var hex = event.shape.warlock.hex;
+        hex.warlock.mouseOver.setVisible(false);
+        Warlock.ui.redraw();
+    };
+
     Warlock.defaultMap = {
         name: "default",
         rows: 15,
@@ -210,12 +221,24 @@
                 name: 'hex redHighlight ' + rowCount + ', ' + colCount
             });
 
+            var mouseOver = new Kinetic.RegularPolygon({
+                sides: 6,
+                radius: background.getRadius(),
+                fill: 'white',
+                strokeWidth: 0,
+                opacity: 0.2,
+                visible: false,
+                name: 'hex mouseOver ' + rowCount + ', ' + colCount
+            });
+
             var hex = new Kinetic.Group({
                 x: xCoord,
                 y: yCoord,
                 name: 'hex group ' + rowCount + ', ' + colCount
             });
             hex.on('click', Warlock.clickFunc);
+            hex.on('mouseover', Warlock.mouseOverFunc);
+            hex.on('mouseout', Warlock.mouseOutFunc);
             hex.warlock = {
                 kind: 'hex',
                 clickDelegation: hex,
@@ -225,6 +248,7 @@
                 background: background,
                 blueHighlight: blueHighlight,
                 redHighlight: redHighlight,
+                mouseOver: mouseOver,
 
                 /* Elements on this hex. */
                 unit: null,
@@ -271,6 +295,7 @@
             hex.warlock.add(background);
             hex.warlock.add(blueHighlight);
             hex.warlock.add(redHighlight);
+            hex.warlock.add(mouseOver);
 
             /* Update values. */
             hexRow.push(hex);
