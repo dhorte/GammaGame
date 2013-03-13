@@ -292,10 +292,14 @@
         Warlock.moveHexes = [];
         Warlock.selectedUnit = null;
 
+        /* Set some global variables. */
+        Warlock.mapHeight = (Warlock.defaultMap.rows * Warlock.HEX_RAD * 3 / 2) + (Warlock.HEX_RAD / 2);
+        Warlock.mapWidth = Warlock.defaultMap.cols * Warlock.HEX_WIDTH;
+
         /* Add the background for the map. */
         Warlock.ui.background = new Kinetic.Rect({
-            height: (Warlock.defaultMap.rows * Warlock.HEX_RAD * 3 / 2) + (Warlock.HEX_RAD / 2),
-            width: Warlock.defaultMap.cols * Warlock.HEX_WIDTH,
+            height: Warlock.mapHeight,
+            width: Warlock.mapWidth,
             x: 0,
             y: 0,
             fill: 'gray',
@@ -310,9 +314,40 @@
                 Warlock.ui.mapLayer.add(map.hexes[row][col]);
             }
         }
+
+        /* Update the drag settings for the map. */
+        Warlock.ui.mapLayer.setDraggable(true);
+        Warlock.ui.mapLayer.setDragBoundFunc(function(pos) {
+            return Warlock.adjustPos(pos, {
+                maxx: 0,
+                maxy: 0,
+                minx: Warlock.ui.stage.getWidth() - Warlock.mapWidth,
+                miny: Warlock.ui.stage.getHeight() - Warlock.mapHeight
+            });
+        });
         
         Warlock.ui.redraw();
     };
+
+})( window.Warlock = window.Warlock || {} );
+
+/*
+ * Players
+ */
+(function( Warlock, undefined ) {
+    Warlock.createPlayer = function(config) {
+        return config;
+    };
+
+    Warlock.defaultPlayer0 = Warlock.createPlayer({
+        id: 0,
+        color: 'red'
+    });
+
+    Warlock.defaultPlayer1 = Warlock.createPlayer({
+        id: 1,
+        color: 'blue'
+    });
 
 })( window.Warlock = window.Warlock || {} );
 
@@ -327,7 +362,12 @@
  */
 (function( Warlock, undefined ) {
     Warlock.moveCost = function(unit, hex) {
-        return 1;
+        if( hex.warlock.unit != null && hex.warlock.unit.player != unit.warlock.player ) {
+            return Number.MAX_VALUE;
+        }
+        else {
+            return 1;
+        }
     };
 
     Warlock.calculateMovement = function(unit) {
@@ -351,7 +391,7 @@
 
             var max = -1;
             for( key in todo ) {
-                var value = parseInt(key, 10);
+                var value = parseFloat(key);
                 if( value < currentlyHandling && value > max ) {
                     max = value;
                 }
@@ -415,6 +455,7 @@
         Warlock.selectedUnit = null;
         for (i in Warlock.moveHexes) {
             Warlock.moveHexes[i].warlock.blueHighlight.setVisible(false);
+            Warlock.moveHexes[i].warlock.redHighlight.setVisible(false);
         }
         Warlock.moveHexes = [];
         Warlock.moveRemain = {};
@@ -438,7 +479,12 @@
         Warlock.moveHexes = movement.hexes;
         Warlock.moveRemain = movement.remain;
         for( i in Warlock.moveHexes ) {
-            Warlock.moveHexes[i].warlock.blueHighlight.setVisible(true);
+            if( Warlock.moveRemain[Warlock.moveHexes[i].warlock.hashKey] > 0 ) {
+                Warlock.moveHexes[i].warlock.blueHighlight.setVisible(true);
+            }
+            else {
+                Warlock.moveHexes[i].warlock.redHighlight.setVisible(true);
+            }
         }
     };
 
@@ -473,7 +519,7 @@
         console.log( "createUnit" );
         var basic_attrs = {
             radius: Warlock.HEX_RAD * 0.7,
-            fill: 'red',
+            fill: config.player.color,
             stroke: 'black',
             strokeWidth: 1,
             name: config.name
@@ -484,8 +530,22 @@
         return circle;
     };
 
-    Warlock.defaultUnit = Warlock.createUnit({
+    Warlock.defaultUnit0 = Warlock.createUnit({
         name: 'warriors',
+        player: Warlock.defaultPlayer0,
+        base: {
+            move: 4,
+            hp: 24
+        },
+        current: {
+            move: 4,
+            hp: 24
+        }
+    });
+
+    Warlock.defaultUnit1 = Warlock.createUnit({
+        name: 'warriors',
+        player: Warlock.defaultPlayer1,
         base: {
             move: 4,
             hp: 24
@@ -545,15 +605,15 @@ $(document).ready(function() {
         /* Map layer. */
 
         Warlock.ui.mapLayer = new Kinetic.Layer({
-            draggable: true,
-            dragBoundFunc: function(pos) {
-                return Warlock.adjustPos(pos, {
-                    maxx: 0,
-                    maxy: 0,
-                    minx: Warlock.ui.stage.getWidth() - Warlock.MAP_WIDTH,
-                    miny: Warlock.ui.stage.getHeight() - Warlock.MAP_HEIGHT
-                });
-            }
+            // draggable: true,
+            // dragBoundFunc: function(pos) {
+            //     return Warlock.adjustPos(pos, {
+            //         maxx: 0,
+            //         maxy: 0,
+            //         minx: Warlock.ui.stage.getWidth() - Warlock.MAP_WIDTH,
+            //         miny: Warlock.ui.stage.getHeight() - Warlock.MAP_HEIGHT
+            //     });
+            // }
         });
         Warlock.ui.mapLayer.on('dragstart', function() {
             /* 
@@ -595,6 +655,38 @@ $(document).ready(function() {
         });
         Warlock.ui.infoLayer.add(Warlock.ui.unitInfoText);
 
+        Warlock.ui.endTurnButton = new Kinetic.Rect({
+            width: 100,
+            height: 30,
+            stroke: '#555',
+            strokeWidth: 3,
+            fill: '#ddd',
+            cornerRadius: 10
+        });
+        Warlock.ui.endTurnText = new Kinetic.Text({
+            text: 'END TURN',
+            fontSize: 14,
+            fontFamily: 'Calibri',
+            fill: 'black',
+            width: Warlock.ui.endTurnButton.getWidth(),
+            align: 'center',
+            y: 8
+        });
+        console.log( Warlock.ui.stage.getWidth() - Warlock.ui.endTurnButton.getWidth() - 1 );
+        Warlock.ui.endTurnGroup = new Kinetic.Group({
+            opacity: 0.8,
+            x: Warlock.ui.stage.getWidth() - Warlock.ui.endTurnButton.getWidth() - 1,
+            y: Warlock.ui.stage.getHeight() - Warlock.ui.endTurnButton.getHeight() - 1
+        });
+        Warlock.ui.endTurnGroup.add(Warlock.ui.endTurnButton);
+        Warlock.ui.endTurnGroup.add(Warlock.ui.endTurnText);
+        Warlock.ui.infoLayer.add(Warlock.ui.endTurnGroup);
+        Warlock.ui.endTurnGroup.on('click', function(event) {
+            $.get("/endturn", function(string) {
+                alert(string)
+            })            
+        });
+        
 
         /* Add layers to stage. */
         Warlock.ui.stage.add(Warlock.ui.mapLayer);
@@ -618,7 +710,8 @@ $(document).ready(function() {
         };
 
         Warlock.loadMap(Warlock.defaultMap);
-        Warlock.addUnit(Warlock.defaultUnit, Warlock.hexes[2][2]);
+        Warlock.addUnit(Warlock.defaultUnit0, Warlock.hexes[2][2]);
+        Warlock.addUnit(Warlock.defaultUnit1, Warlock.hexes[3][5]);
 
     })( window.Warlock = window.Warlock || {} );
 
