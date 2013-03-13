@@ -5,7 +5,6 @@
 
 var express = require('express')
   , routes = require('./routes')
-  , user = require('./routes/user')
   , http = require('http')
   , path = require('path');
 
@@ -29,7 +28,9 @@ app.configure('development', function(){
 
 app.get('/', routes.index);
 app.get('/kinetic', routes.kinetic);
-app.get('/users', user.list);
+app.get('/game/:gameid', function(req, res) {
+    res.send('Welcome to game: ' + req.params.gameid);
+});
 app.get('/endturn', function(req, res) {
     res.send('You have ended your turn.');
 });
