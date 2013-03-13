@@ -152,7 +152,7 @@
     Warlock.defaultMap = {
         name: "default",
         rows: 15,
-        cols: 15,
+        cols: 21,
         hexes: []
     };
 
@@ -298,8 +298,8 @@
 
         /* Add the background for the map. */
         Warlock.ui.background = new Kinetic.Rect({
-            height: Warlock.mapHeight,
-            width: Warlock.mapWidth,
+            height: Math.max(Warlock.mapHeight, Warlock.ui.stage.getHeight()),
+            width: Math.max(Warlock.mapWidth, Warlock.ui.stage.getWidth()),
             x: 0,
             y: 0,
             fill: 'gray',
@@ -318,11 +318,19 @@
         /* Update the drag settings for the map. */
         Warlock.ui.mapLayer.setDraggable(true);
         Warlock.ui.mapLayer.setDragBoundFunc(function(pos) {
+            var minx = 0;
+            var miny = 0;
+            if( Warlock.mapWidth > Warlock.ui.stage.getWidth() ) {
+                minx = Warlock.ui.stage.getWidth() - Warlock.mapWidth;
+            }
+            if( Warlock.mapHeight > Warlock.ui.stage.getHeight() ) {
+                miny = Warlock.ui.stage.getHeight() - Warlock.mapHeight;
+            }
             return Warlock.adjustPos(pos, {
                 maxx: 0,
                 maxy: 0,
-                minx: Warlock.ui.stage.getWidth() - Warlock.mapWidth,
-                miny: Warlock.ui.stage.getHeight() - Warlock.mapHeight
+                minx: minx,
+                miny: miny
             });
         });
         
@@ -598,8 +606,8 @@ $(document).ready(function() {
 
         Warlock.ui.stage = new Kinetic.Stage({
             container: 'game-container',
-            width: 720,
-            height: 350
+            width: 900,
+            height: 600
         });
 
         /* Map layer. */
@@ -630,30 +638,33 @@ $(document).ready(function() {
         Warlock.ui.infoLayer = new Kinetic.Layer();
 
         Warlock.ui.unitInfoRect = new Kinetic.Rect({
-            x: 1,
-            y: Warlock.ui.stage.getHeight() - 151,
             stroke: '#555',
             strokeWidth: 3,
             fill: '#ddd',
             width: 200,
             height: 150,
-            cornerRadius: 10,
-            opacity: 0.5
+            cornerRadius: 10
         });
-        Warlock.ui.infoLayer.add(Warlock.ui.unitInfoRect);
 
         Warlock.ui.unitInfoText = new Kinetic.Text({
-            x: 0,
-            y: 200,
             text: 'UNIT INFO',
             fontSize: 18,
             fontFamily: 'Calibri',
-            fill: '#555',
-            width: 200,
+            fill: 'black',
+            width: Warlock.ui.unitInfoRect.getWidth(),
             padding: 20,
             align: 'center'
         });
-        Warlock.ui.infoLayer.add(Warlock.ui.unitInfoText);
+
+        Warlock.ui.unitInfoGroup = new Kinetic.Group({
+            opacity: 0.8,
+            x: 1,
+            y: Warlock.ui.stage.getHeight() - Warlock.ui.unitInfoRect.getHeight() - 1,
+        });
+        Warlock.ui.unitInfoGroup.add(Warlock.ui.unitInfoRect);
+        Warlock.ui.unitInfoGroup.add(Warlock.ui.unitInfoText);
+        Warlock.ui.infoLayer.add(Warlock.ui.unitInfoGroup);
+
 
         Warlock.ui.endTurnButton = new Kinetic.Rect({
             width: 100,
