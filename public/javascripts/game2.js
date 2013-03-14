@@ -30,6 +30,8 @@
 
     /* GLOBAL VARIABLES. */
 
+    Warlock.currentPlayer = null;
+    Warlock.players = [];
     Warlock.mapHeight = 0;
     Warlock.mapWidth = 0;
     Warlock.hexes = [];            // 2d array of all hexes on the map.
@@ -150,14 +152,25 @@
     };
 
     Warlock.mouseOverFunc = function(event) {
+        /* Highlight the hex to show that it is being moused over. */
         var hex = event.shape.warlock.hex;
         hex.warlock.mouseOver.setVisible(true);
-        Warlock.ui.redraw();
+
+        /* 
+         * If there is a selected unit, and it can attack the target hex, show the
+         * attack icon.
+         */
+        if( Warlock.selectedUnit != null && Warlock.canAttack(Warlock.selectedUnit, hex) ) {
+            hex.warlock.attackIcon.setVisible(true);
+        }
+
+        Warlock.ui.mapLayer.draw();
     };
     Warlock.mouseOutFunc = function(event) {
+        /* Remove the mouseover highlight. */
         var hex = event.shape.warlock.hex;
         hex.warlock.mouseOver.setVisible(false);
-        Warlock.ui.redraw();
+        Warlock.ui.mapLayer.draw();
     };
 
     Warlock.defaultMap = {
@@ -237,8 +250,8 @@
                 name: 'hex group ' + rowCount + ', ' + colCount
             });
             hex.on('click', Warlock.clickFunc);
-            hex.on('mouseover', Warlock.mouseOverFunc);
-            hex.on('mouseout', Warlock.mouseOutFunc);
+            hex.on('mouseenter', Warlock.mouseOverFunc);
+            hex.on('mouseleave', Warlock.mouseOutFunc);
             hex.warlock = {
                 kind: 'hex',
                 clickDelegation: hex,
@@ -368,6 +381,10 @@
  * Players
  */
 (function( Warlock, undefined ) {
+    Warlock.nextPlayer = function() {
+        return Warlock.players[($.inArray(Warlock.currentPlayer, Warlock.players) + 1) % Warlock.players.length];
+    };
+
     Warlock.createPlayer = function(config) {
         return config;
     };
@@ -392,8 +409,13 @@
  * unselectUnit ->
  * moveSelectedUnit ->
  * moveCost(unit, hex) -> cost for particular unit to move onto given hex
+ * canAttack(unit, hex) -> can the unit target an attack on the hex
  */
 (function( Warlock, undefined ) {
+    Warlock.canAttack = function(unit, hex) {
+        return false;
+    };
+
     Warlock.moveCost = function(unit, hex) {
         if( hex.warlock.unit != null && hex.warlock.unit.player != unit.warlock.player ) {
             return Number.MAX_VALUE;
@@ -488,7 +510,9 @@
         Warlock.selectedUnit = null;
         for (i in Warlock.moveHexes) {
             Warlock.moveHexes[i].warlock.blueHighlight.setVisible(false);
+            Warlock.moveHexes[i].warlock.blueHighlight.setOpacity(1.0);
             Warlock.moveHexes[i].warlock.redHighlight.setVisible(false);
+            Warlock.moveHexes[i].warlock.redHighlight.setOpacity(1.0);
         }
         Warlock.moveHexes = [];
         Warlock.moveRemain = {};
@@ -514,9 +538,15 @@
         for( i in Warlock.moveHexes ) {
             if( Warlock.moveRemain[Warlock.moveHexes[i].warlock.hashKey] > 0 ) {
                 Warlock.moveHexes[i].warlock.blueHighlight.setVisible(true);
+                if( unit.warlock.player != Warlock.currentPlayer ) {
+                    Warlock.moveHexes[i].warlock.blueHighlight.setOpacity(0.4);
+                }
             }
             else {
                 Warlock.moveHexes[i].warlock.redHighlight.setVisible(true);
+                if( unit.warlock.player != Warlock.currentPlayer ) {
+                    Warlock.moveHexes[i].warlock.redHighlight.setOpacity(0.4);
+                }
             }
         }
     };
@@ -526,11 +556,15 @@
 
         /* Pre-conditions */
         console.assert( destHex !== undefined );
+        console.assert( Warlock.currentPlayer != null );
 
         /* Convenience declarations */
         var unit = Warlock.selectedUnit;
 
-        if( unit != null && $.inArray(destHex, Warlock.moveHexes) >= 0 ) {
+        if( unit != null && 
+            unit.warlock.player == Warlock.currentPlayer &&
+            $.inArray(destHex, Warlock.moveHexes) >= 0
+          ) {
             console.log( "moveRemain: " + Warlock.moveRemain[destHex.warlock.hashKey] );
             unit.warlock.current.move = Warlock.moveRemain[destHex.warlock.hashKey];
             unit.warlock.hex.warlock.moveUnit(destHex);
@@ -720,6 +754,8 @@ $(document).ready(function() {
         Warlock.ui.endTurnGroup.on('click', function(event) {
             $.get("/endturn", function(string) {
                 alert(string)
+                Warlock.currentPlayer = Warlock.nextPlayer();
+                Warlock.unselectUnit();
             })            
         });
         
@@ -730,7 +766,6 @@ $(document).ready(function() {
 
         /* Create some basic ui functions. */
         Warlock.ui.redraw = function() {
-            console.log( "redraw" );
             Warlock.ui.mapLayer.draw();
             Warlock.ui.infoLayer.draw();
         };
@@ -748,6 +783,9 @@ $(document).ready(function() {
         Warlock.loadMap(Warlock.defaultMap);
         Warlock.addUnit(Warlock.defaultUnit0, Warlock.hexes[2][2]);
         Warlock.addUnit(Warlock.defaultUnit1, Warlock.hexes[3][5]);
+        Warlock.players.push(Warlock.defaultPlayer0);
+        Warlock.players.push(Warlock.defaultPlayer1);
+        Warlock.currentPlayer = Warlock.defaultPlayer0;
 
     })( window.Warlock = window.Warlock || {} );
 
