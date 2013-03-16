@@ -22,16 +22,19 @@
     Warlock.HILLS     = 2;
     Warlock.MOUTAINS  = 3;
 
-    /* Terrain kinds */
-    Warlock.NO_KIND = -1;
+    /* Terrain environments. */
+    Warlock.NO_ENV = -1;
     Warlock.FERTILE = 0;
     Warlock.BARREN  = 1;
     Warlock.SNOWY   = 2;
 
     /* GLOBAL VARIABLES. */
 
-    Warlock.currentPlayer = null;
-    Warlock.players = [];
+    Warlock.map = null;
+
+    Warlock.currentPlayer = null;  // player whose turn it currently is
+    Warlock.players = [];          // list of all players in the game
+    Warlock.units = [];            // list of all units for all players
     Warlock.mapHeight = 0;
     Warlock.mapWidth = 0;
     Warlock.hexes = [];            // 2d array of all hexes on the map.
@@ -40,64 +43,24 @@
     Warlock.moveRemain = {};       // For each hex in moveHexes, cost of moving there.
     Warlock.blockClick = false;    // Used to prevent a click event after dragging.
 
+    /* Objects used for testing. Should not be included in release. */
+    Warlock.test = {};
+
 })( window.Warlock = window.Warlock || {} );
 
 
 /*
- * Map stuff.
- * A default map object and the function
- * loadMap -> takes a map object and loads it into the UI.
- * clickFunc -> handle mouse clicks on the game map
- * adjustPos -> create dragBoundFuncs with retangular shapes.
- * calcNeighbors -> find all the neighbor hexes of a particular hex.
+ * Utilities
  */
 (function( Warlock, undefined ) {
-
-    Warlock.calcNeighbors = function(hex) {
-        var row = hex.warlock.row;
-        var col = hex.warlock.col;
-
-        var num_rows = Warlock.hexes.length;
-        var num_cols = Warlock.hexes[1].length;
-
-        var hexes = Warlock.hexes;
-        var nbs = []
-
-        if( col > 0 ) nbs.push( hexes[row][col - 1] );
-        if( row % 2 == 0 ) {
-            if( col < num_cols - 2 ) {
-                nbs.push( hexes[row][col + 1] );
-            }
-            if( row > 0 ) {
-                nbs.push( hexes[row - 1][col    ] );
-                nbs.push( hexes[row - 1][col + 1] );
-            }
-            if( row < num_rows - 1 ) {
-                nbs.push( hexes[row + 1][col    ] );
-                nbs.push( hexes[row + 1][col + 1] );
-            }
-        }
-        else {
-            if( col < num_cols - 1 ) {
-                nbs.push( hexes[row    ][col + 1] );
-                nbs.push( hexes[row - 1][col    ] );
-                nbs.push( hexes[row + 1][col    ] );
-            }
-            if( col > 0 ) {
-                nbs.push( hexes[row - 1][col - 1] );
-                nbs.push( hexes[row + 1][col - 1] );
-            }
-        }
-
-        return nbs;
-    };
-
+    Warlock.util = {};
+    
     /*
-     * Create a dragBoundFunc that restricts movement to be withing a rectangle, specified
+     * Create a dragBoundFunc that restricts movement to be within a rectangle, specified
      * by the bounds minx, miny, maxx, maxy.
      * @param pos is the pos that is usually passed to the dragBoundFunc.
      */
-    Warlock.adjustPos = function(pos, bounds) {
+    Warlock.util.adjustPos = function(pos, bounds) {
         var lowerX = pos.x < bounds.minx ? bounds.minx : pos.x;
         var lowerY = pos.y < bounds.miny ? bounds.miny : pos.y;
         var newX = pos.x > bounds.maxx ? bounds.maxx : lowerX;
@@ -106,323 +69,96 @@
             x: newX,
             y: newY
         };
-    }
-
-
-    Warlock.clickFunc = function(event) {
-        var clickTarget = event.shape.warlock.clickDelegation;
-
-        /* After a drag event, we don't want to do any clicking. */
-        if( Warlock.blockClick ) {
-            console.log("blockClick");
-            Warlock.blockClick = false;
-            return;
-        }
-
-        // console.log('click on: ' + clickTarget.getName());
-        // console.log('    kind: ' + clickTarget.warlock.kind);
-
-        if( clickTarget.warlock.kind == 'hex' ) {
-            console.log('click on a hex');
-            var attrs = clickTarget.warlock;
-
-            /* Click on a unit. */
-            if( attrs.unit != null ) {
-                if( event.which == Warlock.LEFT_CLICK ) {
-                    Warlock.selectUnit(attrs.unit);
-                }
-            }
-
-            /* Click on an empty hex. */
-            else {
-                if( event.which == Warlock.LEFT_CLICK ) {
-                    Warlock.unselectUnit();
-                }
-
-                else if( event.which == Warlock.RIGHT_CLICK ) {
-                    Warlock.moveSelectedUnit(clickTarget);
-                }
-            }
-        }
-        else {
-            console.log('click on something else');
-        }
-
-        Warlock.ui.redraw();
     };
 
-    Warlock.mouseOverFunc = function(event) {
-        /* Highlight the hex to show that it is being moused over. */
-        var hex = event.shape.warlock.hex;
-        hex.warlock.mouseOver.setVisible(true);
 
-        /* 
-         * If there is a selected unit, and it can attack the target hex, show the
-         * attack icon.
-         */
-        if( Warlock.selectedUnit != null && Warlock.canAttack(Warlock.selectedUnit, hex) ) {
-            hex.warlock.attackIcon.setVisible(true);
-        }
+})( window.Warlock = window.Warlock || {} );
 
-        Warlock.ui.mapLayer.draw();
-    };
-    Warlock.mouseOutFunc = function(event) {
-        /* Remove the mouseover highlight. */
-        var hex = event.shape.warlock.hex;
-        hex.warlock.mouseOver.setVisible(false);
-        Warlock.ui.mapLayer.draw();
-    };
 
-    Warlock.defaultMap = {
-        name: "default",
-        rows: 15,
-        cols: 21,
-        hexes: []
-    };
-
-    /* Create new hexes for the new map. */
-    var rowCount = 0;
-    var colCount = 0;
-    var rowOffset = (0.5 + Warlock.SIN_PI_6) * Warlock.HEX_RAD;
-    var colOffset = 0;
-    var yCoord = rowOffset;
-    var numCols = Warlock.defaultMap.cols;
-    while( rowCount < Warlock.defaultMap.rows ) {
-
-        var hexRow = [];
-
-        /* Set the column offset. */
-        if( rowCount % 2 == 1 ) colOffset = Warlock.HALF_HEX_WIDTH;
-        else colOffset = Warlock.HEX_WIDTH;
-
-        /* 
-         * Set the number of hexs per row.
-         * If the odd numbered rows are one longer than the even numbered rows, the
-         * corners of the map turn out nicer.
-         */
-        if( rowCount % 2 == 0 ) numCols -= 1
-        else numCols += 1
-
-        while( colCount < numCols ) {
-
-            var xCoord = colCount * Warlock.HEX_WIDTH + colOffset;
-
-            var background = new Kinetic.RegularPolygon({
-                sides: 6,
-                radius: Warlock.HEX_RAD,
-                fill: 'magenta',      // Use this to start so that unset ones stand out.
-                stroke: 'black',
-                strokeWidth: 1,
-                name: 'hex background ' + rowCount + ', ' + colCount
-            });
-
-            var blueHighlight = new Kinetic.RegularPolygon({
-                sides: 6,
-                radius: Warlock.HEX_RAD * 0.95,
-                stroke: 'blue',
-                strokeWidth: 1.5,
-                visible: false,
-                name: 'hex blueHighlight ' + rowCount + ', ' + colCount
-            });
-
-            var redHighlight = new Kinetic.RegularPolygon({
-                sides: 6,
-                radius: Warlock.HEX_RAD * 0.95,
-                stroke: 'red',
-                strokeWidth: 1.5,
-                visible: false,
-                name: 'hex redHighlight ' + rowCount + ', ' + colCount
-            });
-
-            var mouseOver = new Kinetic.RegularPolygon({
-                sides: 6,
-                radius: background.getRadius(),
-                fill: 'white',
-                strokeWidth: 0,
-                opacity: 0.2,
-                visible: false,
-                name: 'hex mouseOver ' + rowCount + ', ' + colCount
-            });
-
-            var hex = new Kinetic.Group({
-                x: xCoord,
-                y: yCoord,
-                name: 'hex group ' + rowCount + ', ' + colCount
-            });
-            hex.on('click', Warlock.clickFunc);
-            hex.on('mouseenter', Warlock.mouseOverFunc);
-            hex.on('mouseleave', Warlock.mouseOutFunc);
-            hex.warlock = {
-                kind: 'hex',
-                clickDelegation: hex,
-                hex: hex,
-
-                /* Components of this hex. */
-                background: background,
-                blueHighlight: blueHighlight,
-                redHighlight: redHighlight,
-                mouseOver: mouseOver,
-
-                /* Elements on this hex. */
-                unit: null,
-
-                /* Terrain information. */
-                terrain: {
-                    height: Warlock.NO_HEIGHT,
-                    kind: Warlock.NO_KIND
-                },
-
-                /* Position information. */
-                row: rowCount,
-                col: colCount,
-                diag: colCount + Math.floor( rowCount / 2 ),
-                hashKey: '' + rowCount + ',' + colCount,
-
-                /* Do additional adding logic here, and add to the group. */
-                add: function(elem) {
-                    elem.warlock = elem.warlock || {};
-                    elem.warlock.clickDelegation = this.hex;
-                    elem.warlock.hex = this.hex;
-                    this.hex.add(elem);
-                },
-
-                moveUnit: function(destHex) {
-                    console.log( "moveUnit" );
-                    console.assert( this.unit != null );
-                    destHex.warlock.unit = this.unit;
-                    this.unit.moveTo(destHex);
-                    this.unit.warlock.clickDelegation = destHex;
-                    this.unit.warlock.hex = destHex;
-                    this.unit = null;
-                },
-
-                getNeighbors: function() {
-                    if( this.neighbors === undefined ) {
-                        this.neighbors = Warlock.calcNeighbors( this.hex );
-                    }
-                    return this.neighbors;
-                }
-            };
-
-            /* Join everything together. */
-            hex.warlock.add(background);
-            hex.warlock.add(blueHighlight);
-            hex.warlock.add(redHighlight);
-            hex.warlock.add(mouseOver);
-
-            /* Update values. */
-            hexRow.push(hex);
-            colCount += 1;
-        }
-        
-        /* Update values. */
-        Warlock.defaultMap.hexes.push(hexRow);
-        yCoord += Warlock.HEX_RAD * 1.5;
-        rowCount += 1;
-        colCount = 0;
-    }
-
+/*
+ * Game management functions.
+ */
+(function( Warlock, undefined ) {
     /* Load a map, given the details in the form of a map object. */
     Warlock.loadMap = function(map) {
 
+        Warlock.map = map;
+
         /* Clear the old map. */
         Warlock.ui.mapLayer.removeChildren();
-        Warlock.moveHexes = [];
-        Warlock.selectedUnit = null;
-
-        /* Set some global variables. */
-        Warlock.mapHeight = (Warlock.defaultMap.rows * Warlock.HEX_RAD * 3 / 2) + (Warlock.HEX_RAD / 2);
-        Warlock.mapWidth = Warlock.defaultMap.cols * Warlock.HEX_WIDTH;
 
         /* Add the background for the map. */
         Warlock.ui.background = new Kinetic.Rect({
-            height: Math.max(Warlock.mapHeight, Warlock.ui.stage.getHeight()),
-            width: Math.max(Warlock.mapWidth, Warlock.ui.stage.getWidth()),
-            x: 0,
-            y: 0,
+            height: map.height + Warlock.ui.stage.getHeight(),
+            width: map.width + Warlock.ui.stage.getWidth(),
+            x: -Math.floor( Warlock.ui.stage.getWidth() / 2 ),
+            y: -Math.floor( Warlock.ui.stage.getHeight() / 2 ),
             fill: 'gray',
             strokeWidth: 0
         });
         Warlock.ui.mapLayer.add(Warlock.ui.background);
 
-        /* Populate the world with the map hexes. */
-        Warlock.hexes = map.hexes;
-        for (row in map.hexes) {
+        /* Add the hexes from the map to the mapLayer. */
+        for( row in map.hexes ) {
             for( col in map.hexes[row] ) {
-                Warlock.ui.mapLayer.add(map.hexes[row][col]);
+                Warlock.ui.mapLayer.add(map.hexes[row][col].elem);
             }
         }
 
         /* Update the drag settings for the map. */
         Warlock.ui.mapLayer.setDraggable(true);
         Warlock.ui.mapLayer.setDragBoundFunc(function(pos) {
-            var minx = 0;
-            var miny = 0;
-            if( Warlock.mapWidth > Warlock.ui.stage.getWidth() ) {
-                minx = Warlock.ui.stage.getWidth() - Warlock.mapWidth;
-            }
-            if( Warlock.mapHeight > Warlock.ui.stage.getHeight() ) {
-                miny = Warlock.ui.stage.getHeight() - Warlock.mapHeight;
-            }
-            return Warlock.adjustPos(pos, {
-                maxx: 0,
-                maxy: 0,
-                minx: minx,
-                miny: miny
+            return Warlock.util.adjustPos(pos, {
+                maxx: Math.floor( Warlock.ui.stage.getWidth() / 2 ),
+                maxy: Math.floor( Warlock.ui.stage.getHeight() / 2 ),
+                minx: 1.5 * Warlock.ui.stage.getWidth() - Warlock.ui.background.getWidth(),
+                miny: 1.5 * Warlock.ui.stage.getHeight() - Warlock.ui.background.getHeight()
             });
         });
         
         Warlock.ui.redraw();
     };
 
-})( window.Warlock = window.Warlock || {} );
-
-/*
- * Players
- */
-(function( Warlock, undefined ) {
+    /*
+     * @return the player whose turn is next
+     */
     Warlock.nextPlayer = function() {
         return Warlock.players[($.inArray(Warlock.currentPlayer, Warlock.players) + 1) % Warlock.players.length];
     };
 
-    Warlock.createPlayer = function(config) {
-        return config;
-    };
+    /*
+     * @result Turn cleanup is completed, and the next player's turn is begun.
+     */
+    Warlock.endTurn = function() {
+        /* Reset the movement points of all of the current players units. */
+        for( i in Warlock.units ) {
+            var unit = Warlock.units[i];
+            if( unit.warlock.player == Warlock.currentPlayer ) {
+                unit.warlock.current.move = unit.warlock.base.move;
+            }
+        }
+        
+        Warlock.unselectUnit();
+        Warlock.currentPlayer = Warlock.nextPlayer();
+    }
 
-    Warlock.defaultPlayer0 = Warlock.createPlayer({
-        id: 0,
-        color: 'red'
-    });
+    /* 
+     * Create a new, empty damage dictionary.
+     * Useful for calculating damage, storing damage modifiers, etc.
+     */
+    Warlock.damageDict = function() {
+        return {
+            melee: 0,
+            range: 0,
+            life: 0,
+            death: 0,
+            spirit: 0,
+            elemental: 0
+        };
+    }
 
-    Warlock.defaultPlayer1 = Warlock.createPlayer({
-        id: 1,
-        color: 'blue'
-    });
-
-})( window.Warlock = window.Warlock || {} );
-
-/*
- * Units.
- * addUnit -> Put a new unit on the map.
- * createUnit -> create and return a new unit object
- * selectUnit -> 
- * unselectUnit ->
- * moveSelectedUnit ->
- * moveCost(unit, hex) -> cost for particular unit to move onto given hex
- * canAttack(unit, hex) -> can the unit target an attack on the hex
- */
-(function( Warlock, undefined ) {
     Warlock.canAttack = function(unit, hex) {
         return false;
-    };
-
-    Warlock.moveCost = function(unit, hex) {
-        if( hex.warlock.unit != null && hex.warlock.unit.player != unit.warlock.player ) {
-            return Number.MAX_VALUE;
-        }
-        else {
-            return 1;
-        }
     };
 
     Warlock.calculateMovement = function(unit) {
@@ -577,50 +313,378 @@
     };
 
     Warlock.addUnit = function(unit, hex) {
-        hex.warlock.unit = unit;
-        hex.warlock.add(unit);
-        Warlock.ui.redraw();
+        Warlock.units.push(unit);
+        console.log( "TODO: implement addUnit" );
     };
 
-    Warlock.createUnit = function(config) {
-        console.log( "createUnit" );
-        var basic_attrs = {
-            radius: Warlock.HEX_RAD * 0.7,
-            fill: config.player.color,
-            stroke: 'black',
-            strokeWidth: 1,
-            name: config.name
-        };
 
-        var circle = new Kinetic.Circle(basic_attrs);
-        circle.warlock = config;
-        return circle;
+})( window.Warlock = window.Warlock || {} );
+
+/*
+ * Hexes
+ */
+(function( Warlock, undefined ) {
+
+    Warlock.Hex = function(config) {
+        this._initHex(config);
     };
 
-    Warlock.defaultUnit0 = Warlock.createUnit({
-        name: 'warriors',
-        player: Warlock.defaultPlayer0,
-        base: {
-            move: 4,
-            hp: 24
+    Warlock.Hex.prototype = {
+        _initHex: function(config) {
+
+            /* Required for object creation. */
+            this.row = config.row;
+            this.col = config.col;
+
+            /* Optional */
+            this.unit = config.unit || null;
+            this.terrain = config.terrain || {
+                height: Warlock.NO_HEIGHT,
+                env: Warlock.NO_ENV
+            };
+
+            /* Calculated from other values. */
+            this.diag = this.col + Math.floor( this.row / 2 );
+            this.hashKey = 'hex' + this.row + ',' + this.col;
+
+            /* Storage container for ui elements. */
+            this.ui = {};
+
+            var colOffset = this.row % 2 == 1 ? Warlock.HALF_HEX_WIDTH : Warlock.HEX_WIDTH;
+
+            /* Rendering elements */
+            this.elem = new Kinetic.Group({
+                x: this.col * Warlock.HEX_WIDTH + colOffset,
+                y: (0.5 + Warlock.SIN_PI_6 + (1.5 * this.row)) * Warlock.HEX_RAD,
+                name: 'hex elem ' + config.row + ',' + config.col,
+            });
+            var elemRef = this.elem;
+            var hexRef = this;
+
+            this.ui.background = new Kinetic.RegularPolygon({
+                sides: 6,
+                radius: Warlock.HEX_RAD,
+                fill: 'magenta',
+                stroke: 'black',
+                strokeWidth: 1,
+                name: 'hex background ' + config.row + ', ' + config.row
+            });
+            this.elem.add(this.ui.background);
+
+            this.ui.blueHighlight = new Kinetic.RegularPolygon({
+                sides: 6,
+                radius: Warlock.HEX_RAD * 0.95,
+                stroke: 'blue',
+                strokeWidth: 1.5,
+                visible: false,
+                name: 'hex blueHighlight ' + config.row + ', ' + config.row
+            });
+            this.elem.add(this.ui.blueHighlight);
+
+            this.ui.redHighlight = new Kinetic.RegularPolygon({
+                sides: 6,
+                radius: Warlock.HEX_RAD * 0.95,
+                stroke: 'red',
+                strokeWidth: 1.5,
+                visible: false,
+                name: 'hex redHighlight ' + config.row + ', ' + config.row
+            });
+            this.elem.add(this.ui.redHighlight);
+
+            this.ui.whiteHighlight = new Kinetic.RegularPolygon({
+                sides: 6,
+                radius: this.ui.background.getRadius(),
+                fill: 'white',
+                strokeWidth: 0,
+                opacity: 0.2,
+                visible: false,
+                name: 'hex mouseOver ' + config.row + ', ' + config.row
+            });
+            this.elem.add(this.ui.whiteHighlight);
+            this.elem.on('mouseenter', function(event) {
+                /* Turn on the white highlight to show what is being mouse overed. */
+                hexRef.ui.whiteHighlight.setVisible(true);
+                Warlock.ui.mapLayer.draw();
+            });
+            this.elem.on('mouseleave', function(event) {
+                hexRef.ui.whiteHighlight.setVisible(false);
+                Warlock.ui.mapLayer.draw();
+            });
+            this.elem.on('click', function(event) {
+                if( Warlock.blockClick ) {
+                    console.log("blockClick");
+                    Warlock.blockClick = false;
+                }
+
+                else if( elemRef.unit != null ) {
+                    if( event.which == Warlock.LEFT_CLICK ) {
+                        Warlock.selectUnit(elemRef.unit);
+                    }
+                }
+
+                else {
+                    if( event.which == Warlock.LEFT_CLICK ) {
+                        Warlock.unselectUnit();
+                    }
+
+                    else if( event.which == Warlock.RIGHT_CLICK ) {
+                        Warlock.moveSelectedUnit(elemRef.elem);
+                    }
+                }
+            });
         },
-        current: {
-            move: 4,
-            hp: 24
+
+        /**
+         * cached result of getNeighbors.
+         */
+        _neighbors: null,
+
+        /**
+         * @return All hexes adjacent to this hex.
+         */
+        getNeighbors: function() {
+            if( this._neighbors == null ) {
+                this._neighbors = Warlock.calcNeighbors(this);
+            }
+            return this._neighbors;
         }
+    };
+
+})( window.Warlock = window.Warlock || {} );
+
+/*
+ * Map stuff.
+ */
+(function( Warlock, undefined ) {
+
+    Warlock.Map = function(config) {
+        this._initMap(config);
+    };
+
+    Warlock.Map.prototype = {
+        _initMap: function(config) {
+            
+            /* Required for object creation. */
+            this.rows = config.rows;
+            this.cols = config.cols;
+
+            /* Optional. */
+            this.name = config.name || "map";
+
+            /* Values based on other values. */
+            this.height = (this.rows * Warlock.HEX_RAD * 3 / 2) + (Warlock.HEX_RAD / 2);
+            this.width = this.cols * Warlock.HEX_WIDTH;
+
+            /* The hexes that compose the map. */
+            this.hexes = [];
+
+            var rowCount = 0;
+            var colCount = 0;
+            var numCols = this.cols;
+            while( rowCount < this.rows ) {
+                var hexRow = [];
+
+                /* Alternate the length of the rows to make a nicely shaped map. */
+                if( rowCount % 2 == 0 ) numCols -= 1
+                else numCols += 1
+
+                while( colCount < numCols ) {
+                    var hex = new Warlock.Hex({
+                        row: rowCount,
+                        col: colCount,
+                    });
+                    hexRow.push(hex);
+
+                    colCount += 1;
+                }
+
+                this.hexes.push(hexRow);
+                rowCount += 1;
+                colCount = 0;
+            }
+        },
+
+        calcNeighbors: function(hex) {
+            /* Convenience declarations. */
+            var row = hex.row;
+            var col = hex.col;
+            var hexes = Warlock.hexes;
+
+            /* Store of currently calculated neighbors. Will be returned. */
+            var nbs = []
+
+            if( col > 0 ) nbs.push( hexes[row][col - 1] );
+            if( row % 2 == 0 ) {
+                if( col < this.cols - 2 ) {
+                    nbs.push( hexes[row][col + 1] );
+                }
+                if( row > 0 ) {
+                    nbs.push( hexes[row - 1][col    ] );
+                    nbs.push( hexes[row - 1][col + 1] );
+                }
+                if( row < this.rows - 1 ) {
+                    nbs.push( hexes[row + 1][col    ] );
+                    nbs.push( hexes[row + 1][col + 1] );
+                }
+            }
+            else {
+                if( col < this.cols - 1 ) {
+                    nbs.push( hexes[row    ][col + 1] );
+                    nbs.push( hexes[row - 1][col    ] );
+                    nbs.push( hexes[row + 1][col    ] );
+                }
+                if( col > 0 ) {
+                    nbs.push( hexes[row - 1][col - 1] );
+                    nbs.push( hexes[row + 1][col - 1] );
+                }
+            }
+
+            return nbs;
+        },
+    };
+
+    Warlock.test.map = new Warlock.Map({
+        name: 'test map',
+        rows: 15,
+        cols: 15
     });
 
-    Warlock.defaultUnit1 = Warlock.createUnit({
-        name: 'warriors',
-        player: Warlock.defaultPlayer1,
-        base: {
-            move: 4,
-            hp: 24
+})( window.Warlock = window.Warlock || {} );
+
+
+
+/*
+ * Players
+ */
+(function( Warlock, undefined ) {
+
+    Warlock.Player = function(config) {
+        this._initPlayer(config);
+    };
+
+    Warlock.Player.prototype = {
+        _initPlayer: function(config) {
+
+            /* Required for object creation. */
+            this.id = config.id;
+            this.color = config.color;
         },
-        current: {
-            move: 4,
-            hp: 24
-        }
+    };
+
+    Warlock.test.player0 = new Warlock.Player({
+        id: 0,
+        color: 'red'
+    });
+
+    Warlock.test.player1 = new Warlock.Player({
+        id: 1,
+        color: 'blue'
+    });
+
+})( window.Warlock = window.Warlock || {} );
+
+
+
+/*
+ * Units.
+ */
+(function( Warlock, undefined ) {
+
+    Warlock.Unit = function(config) {
+        this._initUnit(config);
+    };
+
+    Warlock.Unit.prototype = {
+        _initUnit: function(config) {
+
+            /* Dictionaries that we'll need to fill. */
+            this.base = {};
+            this.actions = [];
+
+            /* Required for object creation. */
+            this.name = config.name;
+            this.player = config.player;
+            this.power = config.power;
+            this.powerKind = config.powerKind;
+            this.base.hp = config.hp;
+            this.base.move = config.move;
+
+            /* Optional values with defaults. */
+            this.powerMod = config.powerMod || 0;
+            this.damageMod = $.extend(Warlock.damageDict(), config.damageMod);
+
+            /* Create a basic attack for this unit, based on its power. */
+            if( config.power > 0 && (config.noAttack !== undefined || config.noAttack == false) ) {
+                console.log( "TODO: Create basic attack." );
+            }
+            
+            /* Copy the base values into current, which is where they will be updated. */
+            this.current = $.extend({}, this.base);
+
+            /* Create the canvas element that represents this unit. */
+            this.elem = new Kinetic.Circle({
+                radius: Warlock.HEX_RAD * 0.7,
+                fill: this.player.color,
+                stroke: 'black',
+                strokeWidth: 1,
+            });
+            this.elem.wk = {};
+            this.elem.wk.unit = this;
+            this.elem.wk.hex = config.hex || null;
+        },
+
+        getElem: function() {
+            return this.elem;
+        },
+
+        /* Returns the hex where this unit is currently located. */
+        getHex: function() {
+            return this.elem.wk.hex;
+        },
+
+        moveCost: function(hex) {
+            if( hex.warlock.unit != null && hex.warlock.unit.getPlayer() != this.player ) {
+                return Number.MAX_VALUE;
+            }
+            else {
+                return 1;
+            }
+        },
+
+        /**
+         * Move this unit to the specified hex.
+         * This function tests if the unit can legally be positioned on that hex, which
+         * could be prevented by terrain conditions, enemy units, etc. However, it does
+         * not check or update movement points. So, this can be used by various effects
+         * to move the unit without worrying about affecting the movement points of the
+         * unit.
+         * @param hex Location of this unit after calling the function.
+         */
+        moveToHex: function(hex) {
+            console.log( "TODO: implement moveToHex" );
+        },
+    };
+
+
+    Warlock.test.unit0 = new Warlock.Unit({
+        name: 'ratmen',
+        player: Warlock.test.player0,
+        power: 8,
+        powerKind: 'melee',
+        hp: 16,
+        move: 5,
+        damageMod: {
+            death: 0.5
+        },
+    });
+
+    Warlock.test.unit1 = new Warlock.Unit({
+        name: 'warriors',
+        player: Warlock.test.player1,
+        power: 8,
+        powerKind: 'melee',
+        hp: 24,
+        move: 3,
     });
 
 })( window.Warlock = window.Warlock || {} );
@@ -671,17 +735,7 @@ $(document).ready(function() {
 
         /* Map layer. */
 
-        Warlock.ui.mapLayer = new Kinetic.Layer({
-            // draggable: true,
-            // dragBoundFunc: function(pos) {
-            //     return Warlock.adjustPos(pos, {
-            //         maxx: 0,
-            //         maxy: 0,
-            //         minx: Warlock.ui.stage.getWidth() - Warlock.MAP_WIDTH,
-            //         miny: Warlock.ui.stage.getHeight() - Warlock.MAP_HEIGHT
-            //     });
-            // }
-        });
+        Warlock.ui.mapLayer = new Kinetic.Layer();
         Warlock.ui.mapLayer.on('dragstart', function() {
             /* 
              * We don't want to act on click events that are part of a drag event,
@@ -754,8 +808,7 @@ $(document).ready(function() {
         Warlock.ui.endTurnGroup.on('click', function(event) {
             $.get("/endturn", function(string) {
                 alert(string)
-                Warlock.currentPlayer = Warlock.nextPlayer();
-                Warlock.unselectUnit();
+                Warlock.endTurn();
             })            
         });
         
@@ -780,12 +833,12 @@ $(document).ready(function() {
             Warlock.ui.infoLayer.draw();
         };
 
-        Warlock.loadMap(Warlock.defaultMap);
-        Warlock.addUnit(Warlock.defaultUnit0, Warlock.hexes[2][2]);
-        Warlock.addUnit(Warlock.defaultUnit1, Warlock.hexes[3][5]);
-        Warlock.players.push(Warlock.defaultPlayer0);
-        Warlock.players.push(Warlock.defaultPlayer1);
-        Warlock.currentPlayer = Warlock.defaultPlayer0;
+        Warlock.loadMap(Warlock.test.map);
+        Warlock.addUnit(Warlock.test.unit0, Warlock.test.map.hexes[2][2]);
+        Warlock.addUnit(Warlock.test.unit1, Warlock.test.map.hexes[3][5]);
+        Warlock.players.push(Warlock.test.player0);
+        Warlock.players.push(Warlock.test.player1);
+        Warlock.currentPlayer = Warlock.test.player0;
 
     })( window.Warlock = window.Warlock || {} );
 
