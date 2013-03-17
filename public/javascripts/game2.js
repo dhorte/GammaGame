@@ -23,10 +23,17 @@
     Warlock.MOUTAINS  = 3;
 
     /* Terrain environments. */
-    Warlock.NO_ENV = -1;
-    Warlock.FERTILE = 0;
-    Warlock.BARREN  = 1;
-    Warlock.SNOWY   = 2;
+    Warlock.NO_CLIMATE = -1;
+    Warlock.FERTILE    = 0;
+    Warlock.BARREN     = 1;
+    Warlock.SNOWY      = 2;
+    Warlock.LAVA       = 3;
+
+    /* Terrain Vegetation. */
+    Warlock.CLEAR  = 0;
+    Warlock.FOREST = 1;
+    Warlock.JUNGLE = 2;
+    Warlock.SWAMP  = 3;
 
     /* GLOBAL VARIABLES. */
 
@@ -299,8 +306,65 @@
         hex.addUnit(unit);
     };
 
+    /* Given a map, generate awesome terrain for it. */
+    Warlock.generateTerrain = function(map) {
+        
+    };
 
 })( window.Warlock = window.Warlock || {} );
+
+
+/*
+ * Terrain
+ */
+(function( Warlock, undefined ) {
+    Warlock.Terrain = function(config) {
+        this._initTerrain(config)
+    };
+
+
+    Warlock.Terrain.prototype = {
+        _initTerrain: function(config) {
+            
+            /* Required for object creation. */
+            this.height = config.height;
+            this.climate = config.climate;
+            this.veg = config.veg;
+
+            /* Calculated from other values. */
+            this.type = 'Terrain'
+            this.base = {};
+            this.color = (function() {
+                switch(this.height) {
+                    case Warlock.WATER:     return 'blue';
+                    case Warlock.PLAINS:    return '#7CFC00';
+                    case Warlock.HILLS:     return '#8B4513';
+                    case Warlock.MOUNTAINS: return 'gray';
+                }
+            })();
+
+            /* Display elements. */
+            this.elem = new Kinetic.Group();
+        },
+
+        /* Remember the current state as the base state of this terrain. */
+        freeze: function() {
+            var tref = this;
+            this.base = {
+                height: tref.height,
+                env: tref.env,
+                veg: tref.veg
+            };
+        },
+
+        getBase: function() {
+            return this.base;
+        },
+    };
+
+})( window.Warlock = window.Warlock || {} );
+
+
 
 /*
  * Hexes
@@ -557,6 +621,7 @@
         rows: 15,
         cols: 15
     });
+    Warlock.generateTerrain(Warlock.test.map);
 
 })( window.Warlock = window.Warlock || {} );
 
@@ -637,7 +702,7 @@
 
             /* Create the canvas element that represents this unit. */
             this.elem = new Kinetic.Circle({
-                radius: Warlock.HEX_RAD * 0.7,
+                radius: Warlock.HEX_RAD * 0.5,
                 fill: this.player.color,
                 stroke: 'black',
                 strokeWidth: 1,
