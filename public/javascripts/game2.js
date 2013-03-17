@@ -37,7 +37,6 @@
     Warlock.units = [];            // list of all units for all players
     Warlock.mapHeight = 0;
     Warlock.mapWidth = 0;
-    Warlock.hexes = [];            // 2d array of all hexes on the map.
     Warlock.selectedUnit = null;   // The currently selected unit.
     Warlock.moveHexes = [];        // The hexes that the selected unit can move to.
     Warlock.moveRemain = {};       // For each hex in moveHexes, cost of moving there.
@@ -133,8 +132,8 @@
         /* Reset the movement points of all of the current players units. */
         for( i in Warlock.units ) {
             var unit = Warlock.units[i];
-            if( unit.warlock.player == Warlock.currentPlayer ) {
-                unit.warlock.current.move = unit.warlock.base.move;
+            if( unit.player == Warlock.currentPlayer ) {
+                unit.current.move = unit.base.move;
             }
         }
         
@@ -163,11 +162,11 @@
 
     Warlock.calculateMovement = function(unit) {
         var done = [];
-        var queue = [unit.warlock.hex];
+        var queue = [unit.hex];
         var remain = {};
         var todo = {};
-        todo[unit.warlock.current.move] = [unit.warlock.hex];  // Start with the current hex.
-        var currentlyHandling = unit.warlock.current.move;
+        todo[unit.current.move] = [unit.hex];  // Start with the current hex.
+        var currentlyHandling = unit.current.move;
 
         var movable = [];
 
@@ -200,40 +199,25 @@
         };
 
         while( currentlyHandling >= 0 ) {
-            console.log( 'Currently handling: ' + currentlyHandling );
             for( i in todo[currentlyHandling] ) {
                 var hex = todo[currentlyHandling][i];
                 done.push(hex);
-                remain[hex.warlock.hashKey] = currentlyHandling;
+                remain[hex.hashKey] = currentlyHandling;
 
                 /* Find any neighbors that haven't been done, and get ready to do them. */
-                var nbs = hex.warlock.getNeighbors();
+                var nbs = hex.getNeighbors();
                 for( n in nbs ) {
                     if( $.inArray(nbs[n], queue) == -1 ) {
-                        var nbCost = Warlock.moveCost(unit, nbs[n]);
+                        var nbCost = unit.moveCost(nbs[n]);
                         if( nbCost <= currentlyHandling ) {
                             addHex(nbs[n], currentlyHandling - nbCost);
                         }
                     }
                 }
-
-                hex.warlock.ik = currentlyHandling;
-
-                if( done.length < 10 ) {
-                    console.log( "REPORT FOR: " + done[done.length - 1].getName() );
-                    for( i in done ) {
-                        console.log( 'move: ' + done[i].getName() + ' -> ' + done[i].warlock.ik + ' -> ' + remain[done[i].warlock.hashKey] );
-                    }
-                }
-
             }
 
             nextRange();
         };
-
-        for( i in done ) {
-            console.log( 'move: ' + done[i].getName() + ' -> ' + done[i].warlock.ik + ' -> ' + remain[done[i].warlock.hashKey] );
-        }
 
         return {
             hexes: done,
@@ -245,10 +229,7 @@
         console.log( "unselectUnit" );
         Warlock.selectedUnit = null;
         for (i in Warlock.moveHexes) {
-            Warlock.moveHexes[i].warlock.blueHighlight.setVisible(false);
-            Warlock.moveHexes[i].warlock.blueHighlight.setOpacity(1.0);
-            Warlock.moveHexes[i].warlock.redHighlight.setVisible(false);
-            Warlock.moveHexes[i].warlock.redHighlight.setOpacity(1.0);
+            Warlock.moveHexes[i].outline(false);
         }
         Warlock.moveHexes = [];
         Warlock.moveRemain = {};
@@ -264,26 +245,19 @@
         Warlock.selectedUnit = unit;
 
         /* Display the selected unit's stats. */
-        Warlock.ui.setUnitDetails( unit.warlock.name + '\nhp: ' + unit.warlock.current.hp + '/' + unit.warlock.base.hp + '\nmove: ' + unit.warlock.current.move + '/' + unit.warlock.base.move );
+        Warlock.ui.setUnitDetails( unit.name + '\nhp: ' + unit.current.hp + '/' + unit.base.hp + '\nmove: ' + unit.current.move + '/' + unit.base.move );
 
         /* Display the selected unit's movement potential. */
-        var hex = unit.warlock.clickDelegation;
+        var hex = unit.hex;
         var movement = Warlock.calculateMovement(unit, hex);
         Warlock.moveHexes = movement.hexes;
         Warlock.moveRemain = movement.remain;
         for( i in Warlock.moveHexes ) {
-            if( Warlock.moveRemain[Warlock.moveHexes[i].warlock.hashKey] > 0 ) {
-                Warlock.moveHexes[i].warlock.blueHighlight.setVisible(true);
-                if( unit.warlock.player != Warlock.currentPlayer ) {
-                    Warlock.moveHexes[i].warlock.blueHighlight.setOpacity(0.4);
-                }
-            }
-            else {
-                Warlock.moveHexes[i].warlock.redHighlight.setVisible(true);
-                if( unit.warlock.player != Warlock.currentPlayer ) {
-                    Warlock.moveHexes[i].warlock.redHighlight.setOpacity(0.4);
-                }
-            }
+            console.log( "Can move to " + Warlock.moveHexes[i].getName() );
+            Warlock.moveHexes[i].outline({
+                color: Warlock.moveRemain[Warlock.moveHexes[i].hashKey] > 0 ? 'blue' : 'red',
+                opacity: unit.player == Warlock.currentPlayer ? 1.0 : 0.4
+            });
         }
     };
 
@@ -292,29 +266,37 @@
 
         /* Pre-conditions */
         console.assert( destHex !== undefined );
+        console.assert( destHex.type == 'Hex' );
         console.assert( Warlock.currentPlayer != null );
 
         /* Convenience declarations */
         var unit = Warlock.selectedUnit;
+        console.log( unit != null );
+        console.log( unit.player == Warlock.currentPlayer );
+        console.log( $.inArray(destHex, Warlock.moveHexes) >= 0 );
 
         if( unit != null && 
-            unit.warlock.player == Warlock.currentPlayer &&
+            unit.player == Warlock.currentPlayer &&
             $.inArray(destHex, Warlock.moveHexes) >= 0
           ) {
-            console.log( "moveRemain: " + Warlock.moveRemain[destHex.warlock.hashKey] );
-            unit.warlock.current.move = Warlock.moveRemain[destHex.warlock.hashKey];
-            unit.warlock.hex.warlock.moveUnit(destHex);
+            console.log( "moveRemain: " + Warlock.moveRemain[destHex.hashKey] );
+            unit.current.move = Warlock.moveRemain[destHex.hashKey];
+            unit.moveToHex(destHex);
             Warlock.selectUnit(unit);
 
             /* Post-conditions */
-            console.assert( unit.warlock.hex == destHex );
-            console.assert( destHex.warlock.unit == unit );
+            console.assert( unit.hex == destHex );
+            console.assert( destHex.unit == unit );
         }
     };
 
     Warlock.addUnit = function(unit, hex) {
+        console.assert(unit.hex == null);
+        console.assert(hex.unit == null);
+
         Warlock.units.push(unit);
-        console.log( "TODO: implement addUnit" );
+        unit.hex = hex;
+        hex.addUnit(unit);
     };
 
 
@@ -344,6 +326,7 @@
             };
 
             /* Calculated from other values. */
+            this.type = 'Hex';
             this.diag = this.col + Math.floor( this.row / 2 );
             this.hashKey = 'hex' + this.row + ',' + this.col;
 
@@ -371,25 +354,25 @@
             });
             this.elem.add(this.ui.background);
 
-            this.ui.blueHighlight = new Kinetic.RegularPolygon({
+            this.ui.outline = new Kinetic.RegularPolygon({
                 sides: 6,
                 radius: Warlock.HEX_RAD * 0.95,
                 stroke: 'blue',
                 strokeWidth: 1.5,
                 visible: false,
-                name: 'hex blueHighlight ' + config.row + ', ' + config.row
+                name: 'hex outline ' + config.row + ', ' + config.row
             });
-            this.elem.add(this.ui.blueHighlight);
+            this.elem.add(this.ui.outline);
 
-            this.ui.redHighlight = new Kinetic.RegularPolygon({
-                sides: 6,
-                radius: Warlock.HEX_RAD * 0.95,
-                stroke: 'red',
-                strokeWidth: 1.5,
-                visible: false,
-                name: 'hex redHighlight ' + config.row + ', ' + config.row
-            });
-            this.elem.add(this.ui.redHighlight);
+            // this.ui.redHighlight = new Kinetic.RegularPolygon({
+            //     sides: 6,
+            //     radius: Warlock.HEX_RAD * 0.95,
+            //     stroke: 'red',
+            //     strokeWidth: 1.5,
+            //     visible: false,
+            //     name: 'hex redHighlight ' + config.row + ', ' + config.row
+            // });
+            // this.elem.add(this.ui.redHighlight);
 
             this.ui.whiteHighlight = new Kinetic.RegularPolygon({
                 sides: 6,
@@ -411,14 +394,16 @@
                 Warlock.ui.mapLayer.draw();
             });
             this.elem.on('click', function(event) {
+                console.log( 'received click at: ' + elemRef.getName() );
+
                 if( Warlock.blockClick ) {
                     console.log("blockClick");
                     Warlock.blockClick = false;
                 }
 
-                else if( elemRef.unit != null ) {
+                else if( hexRef.unit != null ) {
                     if( event.which == Warlock.LEFT_CLICK ) {
-                        Warlock.selectUnit(elemRef.unit);
+                        Warlock.selectUnit(hexRef.unit);
                     }
                 }
 
@@ -428,9 +413,11 @@
                     }
 
                     else if( event.which == Warlock.RIGHT_CLICK ) {
-                        Warlock.moveSelectedUnit(elemRef.elem);
+                        Warlock.moveSelectedUnit(hexRef);
                     }
                 }
+
+                Warlock.ui.redraw();
             });
         },
 
@@ -444,10 +431,31 @@
          */
         getNeighbors: function() {
             if( this._neighbors == null ) {
-                this._neighbors = Warlock.calcNeighbors(this);
+                this._neighbors = Warlock.map.calcNeighbors(this);
             }
             return this._neighbors;
-        }
+        },
+
+        getName: function() {
+            return this.hashKey;
+        },
+
+        addUnit: function(unit) {
+            console.assert(this.unit == null);
+            this.unit = unit;
+            this.elem.add(unit.elem);
+        },
+
+        outline: function(config) {
+            if( config === false ) {
+                this.ui.outline.setVisible(false);
+            }
+            else {
+                this.ui.outline.setVisible(true);
+                this.ui.outline.setStroke(config.color || this.ui.outline.getStroke());
+                this.ui.outline.setOpacity(config.opacity || this.ui.outline.getOpacity());
+            }
+        },
     };
 
 })( window.Warlock = window.Warlock || {} );
@@ -472,6 +480,7 @@
             this.name = config.name || "map";
 
             /* Values based on other values. */
+            this.type = 'Map';
             this.height = (this.rows * Warlock.HEX_RAD * 3 / 2) + (Warlock.HEX_RAD / 2);
             this.width = this.cols * Warlock.HEX_WIDTH;
 
@@ -508,7 +517,7 @@
             /* Convenience declarations. */
             var row = hex.row;
             var col = hex.col;
-            var hexes = Warlock.hexes;
+            var hexes = Warlock.map.hexes;
 
             /* Store of currently calculated neighbors. Will be returned. */
             var nbs = []
@@ -568,6 +577,9 @@
             /* Required for object creation. */
             this.id = config.id;
             this.color = config.color;
+
+            /* Calculated from other values. */
+            this.type = 'Player';
         },
     };
 
@@ -610,6 +622,8 @@
             this.base.move = config.move;
 
             /* Optional values with defaults. */
+            this.type = 'Unit';
+            this.hex = config.hex || null;
             this.powerMod = config.powerMod || 0;
             this.damageMod = $.extend(Warlock.damageDict(), config.damageMod);
 
@@ -643,7 +657,7 @@
         },
 
         moveCost: function(hex) {
-            if( hex.warlock.unit != null && hex.warlock.unit.getPlayer() != this.player ) {
+            if( hex.unit != null && hex.unit.player != this.player ) {
                 return Number.MAX_VALUE;
             }
             else {
@@ -661,7 +675,10 @@
          * @param hex Location of this unit after calling the function.
          */
         moveToHex: function(hex) {
-            console.log( "TODO: implement moveToHex" );
+            this.hex.unit = null;
+            this.hex = hex;
+            hex.unit = this;
+            this.elem.moveTo(hex.elem);
         },
     };
 
@@ -833,12 +850,13 @@ $(document).ready(function() {
             Warlock.ui.infoLayer.draw();
         };
 
+        Warlock.players.push(Warlock.test.player0);
+        Warlock.players.push(Warlock.test.player1);
         Warlock.loadMap(Warlock.test.map);
         Warlock.addUnit(Warlock.test.unit0, Warlock.test.map.hexes[2][2]);
         Warlock.addUnit(Warlock.test.unit1, Warlock.test.map.hexes[3][5]);
-        Warlock.players.push(Warlock.test.player0);
-        Warlock.players.push(Warlock.test.player1);
         Warlock.currentPlayer = Warlock.test.player0;
+        Warlock.ui.redraw();
 
     })( window.Warlock = window.Warlock || {} );
 
