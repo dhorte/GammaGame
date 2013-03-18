@@ -20,7 +20,7 @@
     Warlock.WATER     = 0;
     Warlock.PLAINS    = 1;
     Warlock.HILLS     = 2;
-    Warlock.MOUTAINS  = 3;
+    Warlock.MOUNTAINS = 3;
 
     /* Terrain environments. */
     Warlock.NO_CLIMATE = -1;
@@ -233,7 +233,7 @@
     };
 
     Warlock.unselectUnit = function() {
-        console.log( "unselectUnit" );
+        // console.log( "unselectUnit" );
         Warlock.selectedUnit = null;
         for (i in Warlock.moveHexes) {
             Warlock.moveHexes[i].outline(false);
@@ -244,7 +244,7 @@
     };
 
     Warlock.selectUnit = function(unit) {
-        console.log( "selectUnit" );
+        // console.log( "selectUnit" );
 
         if( Warlock.selectedUnit != null ) {
             Warlock.unselectUnit();
@@ -260,16 +260,15 @@
         Warlock.moveHexes = movement.hexes;
         Warlock.moveRemain = movement.remain;
         for( i in Warlock.moveHexes ) {
-            console.log( "Can move to " + Warlock.moveHexes[i].getName() );
             Warlock.moveHexes[i].outline({
-                color: Warlock.moveRemain[Warlock.moveHexes[i].hashKey] > 0 ? 'blue' : 'red',
-                opacity: unit.player == Warlock.currentPlayer ? 1.0 : 0.4
+                color: Warlock.moveRemain[Warlock.moveHexes[i].hashKey] > 0 ? 'magenta' : 'red',
+                opacity: unit.player == Warlock.currentPlayer ? 1.0 : 0.6
             });
         }
     };
 
     Warlock.moveSelectedUnit = function(destHex) {
-        console.log( "moveSelectedUnit to " + destHex.getName() );
+        // console.log( "moveSelectedUnit to " + destHex.getName() );
 
         /* Pre-conditions */
         console.assert( destHex !== undefined );
@@ -278,15 +277,12 @@
 
         /* Convenience declarations */
         var unit = Warlock.selectedUnit;
-        console.log( unit != null );
-        console.log( unit.player == Warlock.currentPlayer );
-        console.log( $.inArray(destHex, Warlock.moveHexes) >= 0 );
 
         if( unit != null && 
             unit.player == Warlock.currentPlayer &&
             $.inArray(destHex, Warlock.moveHexes) >= 0
           ) {
-            console.log( "moveRemain: " + Warlock.moveRemain[destHex.hashKey] );
+            // console.log( "moveRemain: " + Warlock.moveRemain[destHex.hashKey] );
             unit.current.move = Warlock.moveRemain[destHex.hashKey];
             unit.moveToHex(destHex);
             Warlock.selectUnit(unit);
@@ -308,7 +304,16 @@
 
     /* Given a map, generate awesome terrain for it. */
     Warlock.generateTerrain = function(map) {
-        
+        for( row in map.hexes ) {
+            for( col in map.hexes[row] ) {
+                var height = Math.floor(Math.random() * 4); 
+                map.hexes[row][col].setTerrain(new Warlock.Terrain({
+                    height: height,
+                    climate: Warlock.FERTILE,
+                    vegetation: Warlock.CLEAR
+                }));
+            }
+        }
     };
 
 })( window.Warlock = window.Warlock || {} );
@@ -332,19 +337,21 @@
             this.veg = config.veg;
 
             /* Calculated from other values. */
-            this.type = 'Terrain'
+            this.type = 'Terrain';
             this.base = {};
-            this.color = (function() {
-                switch(this.height) {
-                    case Warlock.WATER:     return 'blue';
-                    case Warlock.PLAINS:    return '#7CFC00';
-                    case Warlock.HILLS:     return '#8B4513';
-                    case Warlock.MOUNTAINS: return 'gray';
-                }
-            })();
+            this.color = this._setColor();
 
             /* Display elements. */
             this.elem = new Kinetic.Group();
+        },
+
+        _setColor: function() {
+            switch(this.height) {
+            case Warlock.WATER:     return 'blue';
+            case Warlock.PLAINS:    return '#7CFC00';
+            case Warlock.HILLS:     return '#8B4513';
+            case Warlock.MOUNTAINS: return '#aaa';
+            }
         },
 
         /* Remember the current state as the base state of this terrain. */
@@ -420,9 +427,9 @@
 
             this.ui.outline = new Kinetic.RegularPolygon({
                 sides: 6,
-                radius: Warlock.HEX_RAD * 0.95,
+                radius: Warlock.HEX_RAD * 0.92,
                 stroke: 'blue',
-                strokeWidth: 1.5,
+                strokeWidth: 3,
                 visible: false,
                 name: 'hex outline ' + config.row + ', ' + config.row
             });
@@ -458,10 +465,10 @@
                 Warlock.ui.mapLayer.draw();
             });
             this.elem.on('click', function(event) {
-                console.log( 'received click at: ' + elemRef.getName() );
+                // console.log( 'received click at: ' + elemRef.getName() );
 
                 if( Warlock.blockClick ) {
-                    console.log("blockClick");
+                    // console.log("blockClick");
                     Warlock.blockClick = false;
                 }
 
@@ -519,6 +526,11 @@
                 this.ui.outline.setStroke(config.color || this.ui.outline.getStroke());
                 this.ui.outline.setOpacity(config.opacity || this.ui.outline.getOpacity());
             }
+        },
+
+        setTerrain: function(terrain) {
+            this.terrain = terrain;
+            this.ui.background.setFill(terrain.color);
         },
     };
 
@@ -691,6 +703,7 @@
             this.hex = config.hex || null;
             this.powerMod = config.powerMod || 0;
             this.damageMod = $.extend(Warlock.damageDict(), config.damageMod);
+            this.flying = config.flying || false;
 
             /* Create a basic attack for this unit, based on its power. */
             if( config.power > 0 && (config.noAttack !== undefined || config.noAttack == false) ) {
@@ -725,8 +738,23 @@
             if( hex.unit != null && hex.unit.player != this.player ) {
                 return Number.MAX_VALUE;
             }
-            else {
+            else if( this.flying ) {
                 return 1;
+            }
+            else {
+                /* Impassable terrain. */
+                if( hex.terrain.height == Warlock.MOUNTAINS ||
+                    hex.terrain.height == Warlock.WATER ) return Number.MAX_VALUE;
+
+                /* Vegetation. */
+                else if( hex.terrain.veg == Warlock.FOREST ) return 2;
+                else if( hex.terrain.veg == Warlock.JUNGLE ) return 2;
+                else if( hex.terrain.veg == Warlock.SWAMP ) return 4;
+
+                /* Raw terrain. */
+                else if( hex.terrain.height == Warlock.PLAINS ) return 1;
+                else if( hex.terrain.height == Warlock.HILLS ) return 2;
+                else throw "unknown terrain";
             }
         },
 
@@ -878,7 +906,6 @@ $(document).ready(function() {
             align: 'center',
             y: 8
         });
-        console.log( Warlock.ui.stage.getWidth() - Warlock.ui.endTurnButton.getWidth() - 1 );
         Warlock.ui.endTurnGroup = new Kinetic.Group({
             opacity: 0.8,
             x: Warlock.ui.stage.getWidth() - Warlock.ui.endTurnButton.getWidth() - 1,
