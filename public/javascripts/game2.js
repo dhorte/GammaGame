@@ -1,3 +1,134 @@
+if ( !Array.prototype.forEach ) {
+    Array.prototype.forEach = function(fn, scope) {
+        for(var i = 0, len = this.length; i < len; ++i) {
+            fn.call(scope, this[i], i, this);
+        }
+    }
+}
+
+if (!Array.prototype.map) {
+    Array.prototype.map = function(callback, thisArg) {
+        
+        var T, A, k;
+        
+        if (this == null) {
+            throw new TypeError(" this is null or not defined");
+        }
+        
+        // 1. Let O be the result of calling ToObject passing the |this| value as the argument.
+        var O = Object(this);
+        
+        // 2. Let lenValue be the result of calling the Get internal method of O with the argument "length".
+        // 3. Let len be ToUint32(lenValue).
+        var len = O.length >>> 0;
+        
+        // 4. If IsCallable(callback) is false, throw a TypeError exception.
+        // See: http://es5.github.com/#x9.11
+        if (typeof callback !== "function") {
+            throw new TypeError(callback + " is not a function");
+        }
+        
+        // 5. If thisArg was supplied, let T be thisArg; else let T be undefined.
+        if (thisArg) {
+            T = thisArg;
+        }
+        
+        // 6. Let A be a new array created as if by the expression new Array(len) where Array is
+        // the standard built-in constructor with that name and len is the value of len.
+        A = new Array(len);
+        
+        // 7. Let k be 0
+        k = 0;
+        
+        // 8. Repeat, while k < len
+        while(k < len) {
+            
+            var kValue, mappedValue;
+            
+            // a. Let Pk be ToString(k).
+            //   This is implicit for LHS operands of the in operator
+            // b. Let kPresent be the result of calling the HasProperty internal method of O with argument Pk.
+            //   This step can be combined with c
+            // c. If kPresent is true, then
+            if (k in O) {
+                
+                // i. Let kValue be the result of calling the Get internal method of O with argument Pk.
+                kValue = O[ k ];
+                
+                // ii. Let mappedValue be the result of calling the Call internal method of callback
+                // with T as the this value and argument list containing kValue, k, and O.
+                mappedValue = callback.call(T, kValue, k, O);
+                
+                // iii. Call the DefineOwnProperty internal method of A with arguments
+                // Pk, Property Descriptor {Value: mappedValue, : true, Enumerable: true, Configurable: true},
+                // and false.
+                
+                // In browsers that support Object.defineProperty, use the following:
+                // Object.defineProperty(A, Pk, { value: mappedValue, writable: true, enumerable: true, configurable: true });
+                
+                // For best browser support, use the following:
+                A[ k ] = mappedValue;
+            }
+            // d. Increase k by 1.
+            k++;
+        }
+        
+        // 9. return A
+        return A;
+    };      
+}
+
+if (!Array.prototype.filter)
+{
+    Array.prototype.filter = function(fun /*, thisp */)
+    {
+        "use strict";
+        
+        if (this == null)
+            throw new TypeError();
+        
+        var t = Object(this);
+        var len = t.length >>> 0;
+        if (typeof fun != "function")
+            throw new TypeError();
+        
+        var res = [];
+        var thisp = arguments[1];
+        for (var i = 0; i < len; i++)
+        {
+            if (i in t)
+            {
+                var val = t[i]; // in case fun mutates this
+                if (fun.call(thisp, val, i, t))
+                    res.push(val);
+            }
+        }
+        
+        return res;
+    };
+}
+
+(function( Messages, undefined ) {
+
+    Messages.print = function(message) {
+        $('#messages').append(message);
+        $('#messages').animate({
+            scrollTop: $('#messages')[0].scrollHeight
+        }, 1000);
+    };
+
+    Messages.println = function(message) {
+        Messages.print( message );
+        Messages.print( '<br>' );
+    };
+
+})( window.Messages = window.Messages || {} );
+
+
+
+
+
+
 
 /*
  * namespace
@@ -47,10 +178,46 @@
     Warlock.selectedUnit = null;   // The currently selected unit.
     Warlock.moveHexes = [];        // The hexes that the selected unit can move to.
     Warlock.moveRemain = {};       // For each hex in moveHexes, cost of moving there.
+    Warlock.targetHexes = [];      // The hexes that the current unit action can target.
     Warlock.blockClick = false;    // Used to prevent a click event after dragging.
 
     /* Objects used for testing. Should not be included in release. */
     Warlock.test = {};
+
+
+
+
+    // Warlock.Global = {
+    //     _idCounter: 0,
+    //     newId: function() {
+    //         this._idCounter += 1;
+    //         return this._idCounter;
+    //     }
+    // };
+
+
+
+    // Warlock.Node = function(config) {
+    //     this._nodeInit(config);
+    // };
+    // Warlock.Node.prototype = {
+    //     _nodeInit: function(config) {
+    //         this._id = Warlock.Global.newId();
+    //         this.attrs = {};
+    //     },
+
+    //     getId: function() {
+    //         return this._id;
+    //     }
+    // }
+    // Warlock.Node._addGetter = function(constructor, attr) {
+    //     var method = 'get' + attr.charAt(0).toUpperCase() + attr.slice(1);
+    //     constructor.prototype[method] = function(arg) {
+    //         return this.attrs[attr];
+    //     };
+    // };
+
+
 
 })( window.Warlock = window.Warlock || {} );
 
@@ -75,6 +242,32 @@
             x: newX,
             y: newY
         };
+    };
+
+    /**
+     * @param hex the center of the disc
+     * @param radius number of hexes away to collect (0 = only the center)
+     * @returns an array of hexes in the disc
+     */
+    Warlock.util.hexDisc = function(hex, radius) {
+        var disc = [];
+        var done = [hex];
+        var steps = { 0: [hex] };
+        
+        for( var i = 0; i <= radius; i ++ ) {
+            steps[i + 1] = [];
+            steps[i].forEach(function(curr) {
+                disc.push(curr);
+                curr.getNeighbors().forEach(function(nb) {
+                    if( $.inArray(nb, done) == -1 ) {
+                        steps[i + 1].push(nb);
+                        done.push(nb);
+                    }
+                });
+            });
+        }
+
+        return disc;
     };
 
 
@@ -140,7 +333,7 @@
         for( i in Warlock.units ) {
             var unit = Warlock.units[i];
             if( unit.player == Warlock.currentPlayer ) {
-                unit.current.move = unit.base.move;
+                unit.setMove(unit.base.move);
             }
         }
         
@@ -172,8 +365,8 @@
         var queue = [unit.hex];
         var remain = {};
         var todo = {};
-        todo[unit.current.move] = [unit.hex];  // Start with the current hex.
-        var currentlyHandling = unit.current.move;
+        todo[unit.getMove()] = [unit.hex];  // Start with the current hex.
+        var currentlyHandling = unit.getMove();
 
         var movable = [];
 
@@ -233,42 +426,34 @@
     };
 
     Warlock.unselectUnit = function() {
-        // console.log( "unselectUnit" );
         Warlock.selectedUnit = null;
-        for (i in Warlock.moveHexes) {
-            Warlock.moveHexes[i].outline(false);
-        }
+        Warlock.clearMoveOutlines();
         Warlock.moveHexes = [];
         Warlock.moveRemain = {};
         Warlock.ui.clearUnitDetails();
     };
 
     Warlock.selectUnit = function(unit) {
-        // console.log( "selectUnit" );
-
         if( Warlock.selectedUnit != null ) {
             Warlock.unselectUnit();
         }
         Warlock.selectedUnit = unit;
 
         /* Display the selected unit's stats. */
-        Warlock.ui.setUnitDetails( unit.name + '\nhp: ' + unit.current.hp + '/' + unit.base.hp + '\nmove: ' + unit.current.move + '/' + unit.base.move );
+        Warlock.updatePrimaryUnitStats(unit);
 
         /* Display the selected unit's movement potential. */
         var hex = unit.hex;
         var movement = Warlock.calculateMovement(unit, hex);
         Warlock.moveHexes = movement.hexes;
         Warlock.moveRemain = movement.remain;
-        for( i in Warlock.moveHexes ) {
-            Warlock.moveHexes[i].outline({
-                color: Warlock.moveRemain[Warlock.moveHexes[i].hashKey] > 0 ? 'magenta' : 'red',
-                opacity: unit.player == Warlock.currentPlayer ? 1.0 : 0.6
-            });
-        }
+        Warlock.showMoveOutlines();
+
+        /* Display the selected unit's actions. */
+        Warlock.ui.setActionButtons(unit);
     };
 
     Warlock.moveSelectedUnit = function(destHex) {
-        // console.log( "moveSelectedUnit to " + destHex.getName() );
 
         /* Pre-conditions */
         console.assert( destHex !== undefined );
@@ -282,8 +467,7 @@
             unit.player == Warlock.currentPlayer &&
             $.inArray(destHex, Warlock.moveHexes) >= 0
           ) {
-            // console.log( "moveRemain: " + Warlock.moveRemain[destHex.hashKey] );
-            unit.current.move = Warlock.moveRemain[destHex.hashKey];
+            unit.setMove( Warlock.moveRemain[destHex.hashKey] );
             unit.moveToHex(destHex);
             Warlock.selectUnit(unit);
 
@@ -306,7 +490,13 @@
     Warlock.generateTerrain = function(map) {
         for( row in map.hexes ) {
             for( col in map.hexes[row] ) {
-                var height = Math.floor(Math.random() * 4); 
+                var height = (function() {
+                    var x = Math.random();
+                    if( x < 0.1 ) return Warlock.WATER
+                    else if( x < 0.2 ) return Warlock.MOUNTAINS
+                    else if( x < 0.6 ) return Warlock.HILLS
+                    else return Warlock.PLAINS
+                })();
                 map.hexes[row][col].setTerrain(new Warlock.Terrain({
                     height: height,
                     climate: Warlock.FERTILE,
@@ -314,6 +504,213 @@
                 }));
             }
         }
+    };
+
+    Warlock.showMoveOutlines = function() {
+        for( i in Warlock.moveHexes ) {
+            Warlock.moveHexes[i].outline({
+                color: Warlock.moveRemain[Warlock.moveHexes[i].hashKey] > 0 ? 'magenta' : 'red',
+                opacity: Warlock.selectedUnit.player == Warlock.currentPlayer ? 1.0 : 0.6
+            });
+        }
+    };
+
+    Warlock.clearMoveOutlines = function() {
+        for (i in Warlock.moveHexes) {
+            Warlock.moveHexes[i].outline(false);
+        }
+    };
+
+    Warlock.showTargetOutlines = function() {
+        Warlock.targetHexes.forEach(function(hex) {
+            hex.outline({
+                color: 'white',
+                opacity: 1.0
+            });
+        });
+    };
+
+    Warlock.clearTargetOutlines = function() {
+        Warlock.targetHexes.forEach(function(hex) {
+            hex.keepHighlight = false;
+            hex.outline(false);
+        });
+    }
+
+    Warlock.startAction = function(unit, action) {
+        if( unit.getMove() <= 0 ) {
+            Messages.println( unit.name + ' does not have enough movement to perform ' + action.getName() );
+            return;
+        }
+
+        Warlock.clearMoveOutlines();
+
+        /* Add outlines to valid targets. */
+        var targetable = Warlock.util.hexDisc(unit.hex, action.getRange());
+        Warlock.targetHexes = targetable.filter(function(hex) {
+            if( hex.unit == null ) {
+                return false;
+            }
+            else if( action.getKind() == 'attack' && hex.unit.player != unit.player ) {
+                return true;
+            }
+            else if( action.getKind() == 'heal' && hex.unit.player == unit.player ) {
+                return true;
+            }
+            else {
+                return false;
+            }
+        });
+
+        var color = 'white';
+        if( action.getKind() == 'attack' ) color = 'red'
+        else if( action.getKind() == 'heal' ) color = 'green'
+
+        Warlock.showTargetOutlines(color);
+        if( Warlock.targetHexes.length > 0 ) {
+            console.assert( Warlock.selectedUnit == unit );
+            Warlock.currentAction = action;
+            Warlock.ui.redraw();
+        }
+    };
+
+    /*
+     * @param unit Warlock.Unit to apply damage to
+     * @param amount Number amount of damage to apply
+     * @param source String for output message, the cause of the damage
+     */
+    Warlock.applyDamage = function(unit, amount, source) {
+        unit.current.hp -= amount;
+        if( unit.current.hp <= 0 ) {
+            Messages.println(unit.name + ' has died.');
+        };
+    };
+
+    Warlock.updatePrimaryUnitStats = function(unit) {
+        var text = unit.name + '\nhp: ' + Math.round(unit.current.hp) + '/' + unit.base.hp + '\nmove: ' + unit.getMove() + '/' + unit.base.move;
+        Warlock.ui.unitInfoText.setText(text);
+    };
+
+    Warlock.updateSecondaryUnitStats = function(unit) {
+        console.log( "TODO" );
+    };
+
+    Warlock.doAttack = function(attacker, action, defender) {
+
+        var attackerDamage = (function() {
+            var power = attacker.power;
+
+            /* Apply all power mods. */
+            power *= (1.0 + action.getPowerMod());
+            power *= (1.0 + attacker.powerMod);
+
+            /* Calculate damage for all types. */
+            var damage = Warlock.damageDict();
+            for( key in attacker.damageMod ) {
+                damage[key] = power * attacker.damageMod[key];
+            };
+
+            /* Add in the base damage. */
+            damage[action.getDamageType()] += power;
+
+            /* Apply damage resistance. */
+            for( key in damage ) {
+                damage[key] -= (damage[key] * defender.resistance[key]);
+            };
+
+            var totalDamage = 0;
+            for( key in damage ) {
+                totalDamage += damage[key];
+                console.log( key + ' -> ' + damage[key] );
+            };
+
+            return totalDamage;
+        })();
+
+        var defenderDamage = (function() {
+            if( defender.basicAttack == null ||
+                action.getDamageType() != 'melee'
+            ) {
+                return 0;
+            }
+
+            /* Defender always responds with basic attack. */
+            var defence = defender.basicAttack;
+            var power = defender.power;
+
+            /* Apply all power mods. */
+            power *= (1.0 + defence.getPowerMod());
+            power *= (1.0 + defender.powerMod);
+
+            /* Calculate damage for all types. */
+            var damage = Warlock.damageDict();
+            for( key in defender.damageMod ) {
+                damage[key] = power * defender.damageMod[key];
+            };
+
+            /* Add in the base damage. */
+            damage[defence.getDamageType()] += power;
+
+            /* Apply damage resistance. */
+            for( key in damage ) {
+                damage[key] -= (damage[key] * attacker.resistance[key]);
+            };
+
+            var totalDamage = 0;
+            for( key in damage ) {
+                totalDamage += damage[key];
+            };
+
+            return totalDamage;
+        })();
+
+        Messages.println(
+            sprintf('%(att)s %(attDam).1f -> VS <- %(defDam).1f %(def)s', {
+                att: attacker.name, 
+                attDam: attackerDamage,
+                def: defender.name,
+                defDam: defenderDamage
+            })
+        );
+
+        Warlock.applyDamage(defender, attackerDamage, attacker.name);
+        Warlock.applyDamage(attacker, defenderDamage, defender.name);
+        attacker.setMove(0); // Attacking uses all of a units movement points.
+
+        Warlock.updatePrimaryUnitStats(attacker);
+        Warlock.updateSecondaryUnitStats(defender);
+
+        // for( key in damage ) {
+        //     console.log( key + ' ' + damage[key] );
+        // };
+    };
+
+    Warlock.executeAction = function(targetHex) {
+        console.log( "Executing action: " + Warlock.currentAction.getName() );
+
+        if( Warlock.currentAction == null ) {
+            console.log( "null current action" );
+            return;
+        }
+
+        console.assert( Warlock.selectedUnit != null );
+
+        switch(Warlock.currentAction.getKind()) {
+        case 'attack':
+            Warlock.doAttack(Warlock.selectedUnit, Warlock.currentAction, targetHex.unit );
+            break;
+        case 'heal':
+            console.log( "Heal action." );
+            break;
+        default:
+            console.log( "Unknown action." );
+            break;
+        }
+
+        Warlock.currentAction = null;
+        Warlock.clearTargetOutlines();
+        Warlock.selectUnit(Warlock.selectedUnit);
+        Warlock.ui.redraw();
     };
 
 })( window.Warlock = window.Warlock || {} );
@@ -400,6 +797,7 @@
             this.type = 'Hex';
             this.diag = this.col + Math.floor( this.row / 2 );
             this.hashKey = 'hex' + this.row + ',' + this.col;
+            this.keepHighlight = false;
 
             /* Storage container for ui elements. */
             this.ui = {};
@@ -445,7 +843,7 @@
             // });
             // this.elem.add(this.ui.redHighlight);
 
-            this.ui.whiteHighlight = new Kinetic.RegularPolygon({
+            this.ui.highlight = new Kinetic.RegularPolygon({
                 sides: 6,
                 radius: this.ui.background.getRadius(),
                 fill: 'white',
@@ -454,22 +852,37 @@
                 visible: false,
                 name: 'hex mouseOver ' + config.row + ', ' + config.row
             });
-            this.elem.add(this.ui.whiteHighlight);
+            this.elem.add(this.ui.highlight);
             this.elem.on('mouseenter', function(event) {
-                /* Turn on the white highlight to show what is being mouse overed. */
-                hexRef.ui.whiteHighlight.setVisible(true);
-                Warlock.ui.mapLayer.draw();
+                if( !hexRef.keepHighlight ) {
+                    /* Turn on the white highlight to show what is being mouse overed. */
+                    hexRef.highlight({
+                        color: 'white',
+                        opacity: 0.3
+                    });
+                    Warlock.ui.mapLayer.draw();
+                }
             });
             this.elem.on('mouseleave', function(event) {
-                hexRef.ui.whiteHighlight.setVisible(false);
-                Warlock.ui.mapLayer.draw();
+                if( !hexRef.keepHighlight ) {
+                    hexRef.highlight(false);
+                    Warlock.ui.mapLayer.draw();
+                }
             });
             this.elem.on('click', function(event) {
                 // console.log( 'received click at: ' + elemRef.getName() );
 
                 if( Warlock.blockClick ) {
-                    // console.log("blockClick");
                     Warlock.blockClick = false;
+                    return;
+                }
+
+                /* Execute action on this target. */
+                else if(
+                    event.which == Warlock.RIGHT_CLICK &&
+                    $.inArray(hexRef, Warlock.targetHexes) >= 0
+                ) {
+                    Warlock.executeAction(hexRef);
                 }
 
                 else if( hexRef.unit != null ) {
@@ -525,6 +938,17 @@
                 this.ui.outline.setVisible(true);
                 this.ui.outline.setStroke(config.color || this.ui.outline.getStroke());
                 this.ui.outline.setOpacity(config.opacity || this.ui.outline.getOpacity());
+            }
+        },
+
+        highlight: function(config) {
+            if( config === false ) {
+                this.ui.highlight.setVisible(false);
+            }
+            else {
+                this.ui.highlight.setFill(config.color || this.ui.highlight.getFill());
+                this.ui.highlight.setOpacity(config.opacity || this.ui.highlight.getOpacity());
+                this.ui.highlight.setVisible(true);
             }
         },
 
@@ -672,7 +1096,53 @@
 
 })( window.Warlock = window.Warlock || {} );
 
+/*
+ * Actions
+ * Actions are intended to be immutable after their creation. Any mods to them should
+ * be applied to the unit who has the action.
+ */
+(function( Warlock, undefined ) {
+    
+    Warlock.Action = function(config) {
+        this._initAction(config);
+    };
 
+    Warlock.Action.prototype = {
+        _initAction: function(config) {
+            this.attrs = {
+                /* Required for object creation. */
+                name: config.name,      // arbitrary identifier
+                kind: config.kind,      // 'attack' or 'heal'
+                range: config.range,    // 0 = self, 1 = adjacent, etc.
+                damageType: config.damageType,
+                
+                /* Optional. */
+                powerMod: config.powerMod || 0.0,
+                effects: config.effects || [],
+            }
+        },
+
+        getName: function() {
+            return this.attrs.name;
+        },
+        getKind: function() {
+            return this.attrs.kind;
+        },
+        getRange: function() {
+            return this.attrs.range;
+        },
+        getDamageType: function() {
+            return this.attrs.damageType;
+        },
+        getPowerMod: function() {
+            return this.attrs.powerMod
+        },
+        getEffects: function() {
+            return this.attrs.effects.slice(0);
+        },
+    };
+
+})( window.Warlock = window.Warlock || {} );
 
 /*
  * Units.
@@ -685,6 +1155,7 @@
 
     Warlock.Unit.prototype = {
         _initUnit: function(config) {
+            var unitRef = this;
 
             /* Dictionaries that we'll need to fill. */
             this.base = {};
@@ -700,16 +1171,31 @@
 
             /* Optional values with defaults. */
             this.type = 'Unit';
-            this.hex = config.hex || null;
             this.powerMod = config.powerMod || 0;
             this.damageMod = $.extend(Warlock.damageDict(), config.damageMod);
+            this.resistance = $.extend(Warlock.damageDict(), config.resistance);
             this.flying = config.flying || false;
+            this.basicAttack = null;
 
             /* Create a basic attack for this unit, based on its power. */
-            if( config.power > 0 && (config.noAttack !== undefined || config.noAttack == false) ) {
-                console.log( "TODO: Create basic attack." );
+            if( config.power > 0 && !config.noAttack ) {
+                this.basicAttack = new Warlock.Action({
+                    name: 'basic attack',
+                    kind: 'attack',
+                    range: (function() {
+                        if( config.powerKind == 'melee' ) return 1;
+                        else return 2;
+                    })(),
+                    damageType: unitRef.powerKind,
+                });
+                this.actions.push(this.basicAttack);
             }
-            
+
+            /* Add additional actions from the config file. */
+            for( i in config.actions ) {
+                this.actions.push( config.actions[i] );
+            }
+
             /* Copy the base values into current, which is where they will be updated. */
             this.current = $.extend({}, this.base);
 
@@ -723,6 +1209,21 @@
             this.elem.wk = {};
             this.elem.wk.unit = this;
             this.elem.wk.hex = config.hex || null;
+        },
+
+        getMove: function() {
+            return this.current.move;
+        },
+
+        setMove: function(amount) {
+            console.assert(amount >= 0);
+            console.assert(amount <= this.base.move);
+            this.current.move = amount;
+
+            /* Create a visual indicator when a unit has no more movement points. */
+            if( this.current.move == 0 ) {
+                console.log( "TODO: Show a visual indicator when movement is exhausted." )
+            }
         },
 
         getElem: function() {
@@ -740,6 +1241,10 @@
             }
             else if( this.flying ) {
                 return 1;
+            }
+            else if( this.marine ) {
+                if( hex.terrain.height == Warlock.WATER ) return 1;
+                else return Number.MAX_VALUE;
             }
             else {
                 /* Impassable terrain. */
@@ -776,7 +1281,7 @@
     };
 
 
-    Warlock.test.unit0 = new Warlock.Unit({
+    Warlock.test.ratmen = new Warlock.Unit({
         name: 'ratmen',
         player: Warlock.test.player0,
         power: 8,
@@ -788,13 +1293,33 @@
         },
     });
 
-    Warlock.test.unit1 = new Warlock.Unit({
+    Warlock.test.shamans = new Warlock.Unit({
+        name: 'shamans',
+        player: Warlock.test.player0,
+        power: 10,
+        powerKind: 'spirit',
+        hp: 20,
+        move: 3,
+        actions: [
+            new Warlock.Action({
+                name: 'heal',
+                kind: 'heal',
+                range: 2,
+                damageType: 'life',
+            }),
+        ],
+    });
+
+    Warlock.test.warriors = new Warlock.Unit({
         name: 'warriors',
         player: Warlock.test.player1,
         power: 8,
         powerKind: 'melee',
         hp: 24,
         move: 3,
+        resistance: {
+            melee: 0.4
+        },
     });
 
 })( window.Warlock = window.Warlock || {} );
@@ -846,12 +1371,21 @@ $(document).ready(function() {
         /* Map layer. */
 
         Warlock.ui.mapLayer = new Kinetic.Layer();
-        Warlock.ui.mapLayer.on('dragstart', function() {
-            /* 
-             * We don't want to act on click events that are part of a drag event,
-             * so we set blockClick to prevent it.
-             */
-            Warlock.blockClick = true;
+        Warlock.ui.mapLayer.on('dragstart', function(event) {
+            Warlock.dragDist = 0;
+            Warlock.dragX = event.x;
+            Warlock.dragY = event.y;
+        });
+        Warlock.ui.mapLayer.on('dragmove', function(event) {
+            var dx = event.x - Warlock.dragX;
+            var dy = event.y - Warlock.dragY;
+            Warlock.dragDist += Math.sqrt( dx * dx + dy * dy );
+            Warlock.dragX = event.x;
+            Warlock.dragY = event.y;
+            
+            if( dragDist > 2 ) {
+                Warlock.blockClick = true;
+            }
         });
 
 
@@ -860,14 +1394,23 @@ $(document).ready(function() {
 
         Warlock.ui.infoLayer = new Kinetic.Layer();
 
-        Warlock.ui.unitInfoRect = new Kinetic.Rect({
-            stroke: '#555',
-            strokeWidth: 3,
-            fill: '#ddd',
-            width: 200,
-            height: 150,
-            cornerRadius: 10
+        /* Formatting to use for UI rectangles. */
+        var uiRect = function(config) {
+            var base = {
+                stroke: '#555',
+                strokeWidth: 3,
+                fill: '#ddd',
+                cornerRadius: 10
+            };
+            var config = $.extend(base, config);
+            return new Kinetic.Rect(config);
+        }
+
+        Warlock.ui.unitInfoRect = uiRect({
+            width: 150,
+            height: 100
         });
+
 
         Warlock.ui.unitInfoText = new Kinetic.Text({
             text: 'UNIT INFO',
@@ -875,7 +1418,7 @@ $(document).ready(function() {
             fontFamily: 'Calibri',
             fill: 'black',
             width: Warlock.ui.unitInfoRect.getWidth(),
-            padding: 20,
+            padding: 10,
             align: 'center'
         });
 
@@ -888,14 +1431,9 @@ $(document).ready(function() {
         Warlock.ui.unitInfoGroup.add(Warlock.ui.unitInfoText);
         Warlock.ui.infoLayer.add(Warlock.ui.unitInfoGroup);
 
-
-        Warlock.ui.endTurnButton = new Kinetic.Rect({
+        Warlock.ui.endTurnButton = uiRect({
             width: 100,
             height: 30,
-            stroke: '#555',
-            strokeWidth: 3,
-            fill: '#ddd',
-            cornerRadius: 10
         });
         Warlock.ui.endTurnText = new Kinetic.Text({
             text: 'END TURN',
@@ -932,21 +1470,71 @@ $(document).ready(function() {
             Warlock.ui.infoLayer.draw();
         };
 
-        Warlock.ui.setUnitDetails = function(text) {
-            Warlock.ui.unitInfoText.setText(text);
-            Warlock.ui.infoLayer.draw();
-        };
-
         Warlock.ui.clearUnitDetails = function() {
             Warlock.ui.unitInfoText.setText("");
             Warlock.ui.infoLayer.draw();
         };
 
+        Warlock.ui.actionButtons = [];
+        Warlock.ui.clearActionButtons = function() {
+            for( i in Warlock.ui.actionButtons ) {
+                Warlock.ui.actionButtons[i].remove();
+            }
+            Warlock.ui.actionButtons = [];
+        };
+        Warlock.ui.setActionButtons = function(unit) {
+            Warlock.ui.clearActionButtons();
+
+            var actions = unit.actions;
+
+            for( var i = 0; i < actions.length; i++ ) {
+                (function() {
+                    var action = actions[i];
+                    var rect = uiRect({
+                        width: Warlock.ui.unitInfoRect.getWidth(),
+                        height: 30
+                    });
+                    var text = new Kinetic.Text({
+                        text: action.getName(),
+                        fontSize: 16,
+                        fontFamily: 'Calibri',
+                        fill: 'black',
+                        width: rect.getWidth(),
+                        align: 'center',
+                        y: 8
+                    });
+                    var group = new Kinetic.Group({
+                        opacity: 0.8,
+                        x: 1,
+                        y: Warlock.ui.unitInfoGroup.getY() - (30 * (actions.length - i))
+                    });
+                    group.on('mouseenter', function(event) {
+                        group.setOpacity(1.0);
+                        Warlock.ui.infoLayer.draw();
+                    });
+                    group.on('mouseleave', function(event) {
+                        group.setOpacity(0.8);
+                        Warlock.ui.infoLayer.draw();
+                    });
+                    group.on('click', function(event) {
+                        Warlock.startAction(unit, action);
+                    });
+                    group.add(rect);
+                    group.add(text);
+                    Warlock.ui.actionButtons.push(group);
+                    Warlock.ui.infoLayer.add(group);
+                })();
+            }
+        };
+
+
+
         Warlock.players.push(Warlock.test.player0);
         Warlock.players.push(Warlock.test.player1);
         Warlock.loadMap(Warlock.test.map);
-        Warlock.addUnit(Warlock.test.unit0, Warlock.test.map.hexes[2][2]);
-        Warlock.addUnit(Warlock.test.unit1, Warlock.test.map.hexes[3][5]);
+        Warlock.addUnit(Warlock.test.ratmen, Warlock.test.map.hexes[2][2]);
+        Warlock.addUnit(Warlock.test.shamans, Warlock.test.map.hexes[4][1]);
+        Warlock.addUnit(Warlock.test.warriors, Warlock.test.map.hexes[3][3]);
         Warlock.currentPlayer = Warlock.test.player0;
         Warlock.ui.redraw();
 
