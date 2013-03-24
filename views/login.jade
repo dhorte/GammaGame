@@ -3,9 +3,6 @@ html
   head
     title= title
     link(rel='stylesheet', href='/stylesheets/style.css')
-    block scripts
   body
-    if !user
-      a(href="/login") log in
-    else
-      block content
+    h1= title
+    a(href="/auth/google") log in with Google

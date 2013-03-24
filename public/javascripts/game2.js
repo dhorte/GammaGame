@@ -1527,7 +1527,10 @@ $(document).ready(function() {
             }
         };
 
-
+        Warlock.socket = io.connect('http://localhost');
+        Warlock.socket.on('connect', function(data) {
+            Messages.println( 'Connected to server.' );
+        });
 
         Warlock.players.push(Warlock.test.player0);
         Warlock.players.push(Warlock.test.player1);
