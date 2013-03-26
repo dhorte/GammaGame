@@ -171,7 +171,7 @@ if (!Array.prototype.filter)
     Warlock.map = null;
 
     Warlock.currentPlayer = null;  // player whose turn it currently is
-    Warlock.players = [];          // list of all players in the game
+    Warlock.players = {};          // list of all players in the game
     Warlock.units = [];            // list of all units for all players
     Warlock.mapHeight = 0;
     Warlock.mapWidth = 0;
@@ -322,7 +322,11 @@ if (!Array.prototype.filter)
      * @return the player whose turn is next
      */
     Warlock.nextPlayer = function() {
-        return Warlock.players[($.inArray(Warlock.currentPlayer, Warlock.players) + 1) % Warlock.players.length];
+        var nextId = Warlock.currentPlayer.id + 1;
+        if( ! nextId in Warlock.players ) {
+            nextId = 0;
+        }
+        return Warlock.players[nextId];
     };
 
     /*
@@ -332,7 +336,7 @@ if (!Array.prototype.filter)
         /* Reset the movement points of all of the current players units. */
         for( i in Warlock.units ) {
             var unit = Warlock.units[i];
-            if( unit.player == Warlock.currentPlayer ) {
+            if( unit.getPlayer() == Warlock.currentPlayer ) {
                 unit.setMove(unit.base.move);
             }
         }
@@ -464,7 +468,7 @@ if (!Array.prototype.filter)
         var unit = Warlock.selectedUnit;
 
         if( unit != null && 
-            unit.player == Warlock.currentPlayer &&
+            unit.getPlayer() == Warlock.currentPlayer &&
             $.inArray(destHex, Warlock.moveHexes) >= 0
           ) {
             unit.setMove( Warlock.moveRemain[destHex.hashKey] );
@@ -477,7 +481,14 @@ if (!Array.prototype.filter)
         }
     };
 
-    Warlock.addUnit = function(unit, hex) {
+    Warlock.addUnit = function(unitConfig) {
+        var hex = Warlock.map.hexes[unitConfig.pos.row][unitConfig.pos.col];
+        var unit = new Warlock.Unit(unitConfig);
+
+        if( hex === undefined ) {
+            throw 'unknown hex: ' + unitConfig.pos;
+        }
+
         console.assert(unit.hex == null);
         console.assert(hex.unit == null);
 
@@ -508,9 +519,11 @@ if (!Array.prototype.filter)
 
     Warlock.showMoveOutlines = function() {
         for( i in Warlock.moveHexes ) {
+            var finalMove = Warlock.moveRemain[Warlock.moveHexes[i].hashKey] <= 0;
+            var activeUnit = Warlock.selectedUnit.getPlayer() == Warlock.currentPlayer;
             Warlock.moveHexes[i].outline({
-                color: Warlock.moveRemain[Warlock.moveHexes[i].hashKey] > 0 ? 'magenta' : 'red',
-                opacity: Warlock.selectedUnit.player == Warlock.currentPlayer ? 1.0 : 0.6
+                color: finalMove ? 'red' : 'magenta',
+                opacity: activeUnit ? 1.0 : 0.6
             });
         }
     };
@@ -551,10 +564,10 @@ if (!Array.prototype.filter)
             if( hex.unit == null ) {
                 return false;
             }
-            else if( action.getKind() == 'attack' && hex.unit.player != unit.player ) {
+            else if( action.getKind() == 'attack' && hex.unit.getPlayer() != unit.getPlayer() ) {
                 return true;
             }
-            else if( action.getKind() == 'heal' && hex.unit.player == unit.player ) {
+            else if( action.getKind() == 'heal' && hex.unit.getPlayer() == unit.getPlayer() ) {
                 return true;
             }
             else {
@@ -1084,16 +1097,6 @@ if (!Array.prototype.filter)
         },
     };
 
-    Warlock.test.player0 = new Warlock.Player({
-        id: 0,
-        color: 'red'
-    });
-
-    Warlock.test.player1 = new Warlock.Player({
-        id: 1,
-        color: 'blue'
-    });
-
 })( window.Warlock = window.Warlock || {} );
 
 /*
@@ -1163,7 +1166,7 @@ if (!Array.prototype.filter)
 
             /* Required for object creation. */
             this.name = config.name;
-            this.player = config.player;
+            this.player_id = config.player_id;
             this.power = config.power;
             this.powerKind = config.powerKind;
             this.base.hp = config.hp;
@@ -1192,8 +1195,10 @@ if (!Array.prototype.filter)
             }
 
             /* Add additional actions from the config file. */
-            for( i in config.actions ) {
-                this.actions.push( config.actions[i] );
+            if( config.actions !== undefined ) {
+                config.actions.forEach(function(actionConfig) {
+                    unitRef.actions.push(new Warlock.Action(actionConfig));
+                });
             }
 
             /* Copy the base values into current, which is where they will be updated. */
@@ -1202,13 +1207,17 @@ if (!Array.prototype.filter)
             /* Create the canvas element that represents this unit. */
             this.elem = new Kinetic.Circle({
                 radius: Warlock.HEX_RAD * 0.5,
-                fill: this.player.color,
+                fill: this.getPlayer().color,
                 stroke: 'black',
                 strokeWidth: 1,
             });
             this.elem.wk = {};
             this.elem.wk.unit = this;
             this.elem.wk.hex = config.hex || null;
+        },
+
+        getPlayer: function() {
+            return Warlock.players[this.player_id];
         },
 
         getMove: function() {
@@ -1236,7 +1245,7 @@ if (!Array.prototype.filter)
         },
 
         moveCost: function(hex) {
-            if( hex.unit != null && hex.unit.player != this.player ) {
+            if( hex.unit != null && hex.unit.getPlayer() != this.getPlayer() ) {
                 return Number.MAX_VALUE;
             }
             else if( this.flying ) {
@@ -1280,76 +1289,7 @@ if (!Array.prototype.filter)
         },
     };
 
-
-    Warlock.test.ratmen = new Warlock.Unit({
-        name: 'ratmen',
-        player: Warlock.test.player0,
-        power: 8,
-        powerKind: 'melee',
-        hp: 16,
-        move: 5,
-        damageMod: {
-            death: 0.5
-        },
-    });
-
-    Warlock.test.shamans = new Warlock.Unit({
-        name: 'shamans',
-        player: Warlock.test.player0,
-        power: 10,
-        powerKind: 'spirit',
-        hp: 20,
-        move: 3,
-        actions: [
-            new Warlock.Action({
-                name: 'heal',
-                kind: 'heal',
-                range: 2,
-                damageType: 'life',
-            }),
-        ],
-    });
-
-    Warlock.test.warriors = new Warlock.Unit({
-        name: 'warriors',
-        player: Warlock.test.player1,
-        power: 8,
-        powerKind: 'melee',
-        hp: 24,
-        move: 3,
-        resistance: {
-            melee: 0.4
-        },
-    });
-
 })( window.Warlock = window.Warlock || {} );
-
-
-$(document).ready(function() {
-
-    /* Block the browser context menu on the canvas. */
-    document
-        .querySelector('#game-container')
-        .addEventListener('contextmenu', function(e) {
-            e.preventDefault();
-        });
-
-
-    /*
-     * Resource loader.
-     */
-
-    var loader = new PxLoader();
-    var ufoImg = loader.addImage('images/ufo.png'); 
-
-    // callback that will be run once images are ready 
-    loader.addCompletionListener(function() { 
-        console.log( 'Resources loaded.' );
-    }); 
-    
-    // begin downloading images 
-    loader.start();     
-});
 
 
 $(document).ready(function() {
@@ -1360,186 +1300,217 @@ $(document).ready(function() {
      * require DOM elements.
      */
     (function( Warlock, undefined ) {
-        Warlock.ui = {};
+        Warlock.setupStage = function() {
+            Warlock.ui = {};
 
-        Warlock.ui.stage = new Kinetic.Stage({
-            container: 'game-container',
-            width: 900,
-            height: 600
-        });
+            Warlock.ui.stage = new Kinetic.Stage({
+                container: 'game-container',
+                width: 900,
+                height: 600
+            });
 
-        /* Map layer. */
+            /* Map layer. */
 
-        Warlock.ui.mapLayer = new Kinetic.Layer();
-        Warlock.ui.mapLayer.on('dragstart', function(event) {
-            Warlock.dragDist = 0;
-            Warlock.dragX = event.x;
-            Warlock.dragY = event.y;
-        });
-        Warlock.ui.mapLayer.on('dragmove', function(event) {
-            var dx = event.x - Warlock.dragX;
-            var dy = event.y - Warlock.dragY;
-            Warlock.dragDist += Math.sqrt( dx * dx + dy * dy );
-            Warlock.dragX = event.x;
-            Warlock.dragY = event.y;
-            
-            if( dragDist > 2 ) {
-                Warlock.blockClick = true;
+            Warlock.ui.mapLayer = new Kinetic.Layer();
+            Warlock.ui.mapLayer.on('dragstart', function(event) {
+                Warlock.dragDist = 0;
+                Warlock.dragX = event.x;
+                Warlock.dragY = event.y;
+            });
+            Warlock.ui.mapLayer.on('dragmove', function(event) {
+                var dx = event.x - Warlock.dragX;
+                var dy = event.y - Warlock.dragY;
+                Warlock.dragDist += Math.sqrt( dx * dx + dy * dy );
+                Warlock.dragX = event.x;
+                Warlock.dragY = event.y;
+
+                if( dragDist > 2 ) {
+                    Warlock.blockClick = true;
+                }
+            });
+
+
+
+            /* UI Infomation layer. */
+
+            Warlock.ui.infoLayer = new Kinetic.Layer();
+
+            /* Formatting to use for UI rectangles. */
+            var uiRect = function(config) {
+                var base = {
+                    stroke: '#555',
+                    strokeWidth: 3,
+                    fill: '#ddd',
+                    cornerRadius: 10
+                };
+                var config = $.extend(base, config);
+                return new Kinetic.Rect(config);
             }
-        });
+
+            Warlock.ui.unitInfoRect = uiRect({
+                width: 150,
+                height: 100
+            });
 
 
+            Warlock.ui.unitInfoText = new Kinetic.Text({
+                text: 'UNIT INFO',
+                fontSize: 18,
+                fontFamily: 'Calibri',
+                fill: 'black',
+                width: Warlock.ui.unitInfoRect.getWidth(),
+                padding: 10,
+                align: 'center'
+            });
 
-        /* UI Infomation layer. */
+            Warlock.ui.unitInfoGroup = new Kinetic.Group({
+                opacity: 0.8,
+                x: 1,
+                y: Warlock.ui.stage.getHeight() - Warlock.ui.unitInfoRect.getHeight() - 1,
+            });
+            Warlock.ui.unitInfoGroup.add(Warlock.ui.unitInfoRect);
+            Warlock.ui.unitInfoGroup.add(Warlock.ui.unitInfoText);
+            Warlock.ui.infoLayer.add(Warlock.ui.unitInfoGroup);
 
-        Warlock.ui.infoLayer = new Kinetic.Layer();
+            Warlock.ui.endTurnButton = uiRect({
+                width: 100,
+                height: 30,
+            });
+            Warlock.ui.endTurnText = new Kinetic.Text({
+                text: 'END TURN',
+                fontSize: 14,
+                fontFamily: 'Calibri',
+                fill: 'black',
+                width: Warlock.ui.endTurnButton.getWidth(),
+                align: 'center',
+                y: 8
+            });
+            Warlock.ui.endTurnGroup = new Kinetic.Group({
+                opacity: 0.8,
+                x: Warlock.ui.stage.getWidth() - Warlock.ui.endTurnButton.getWidth() - 1,
+                y: Warlock.ui.stage.getHeight() - Warlock.ui.endTurnButton.getHeight() - 1
+            });
+            Warlock.ui.endTurnGroup.add(Warlock.ui.endTurnButton);
+            Warlock.ui.endTurnGroup.add(Warlock.ui.endTurnText);
+            Warlock.ui.infoLayer.add(Warlock.ui.endTurnGroup);
+            Warlock.ui.endTurnGroup.on('click', function(event) {
+                $.get("/endturn", function(string) {
+                    alert(string)
+                    Warlock.endTurn();
+                })            
+            });
 
-        /* Formatting to use for UI rectangles. */
-        var uiRect = function(config) {
-            var base = {
-                stroke: '#555',
-                strokeWidth: 3,
-                fill: '#ddd',
-                cornerRadius: 10
+
+            /* Add layers to stage. */
+            Warlock.ui.stage.add(Warlock.ui.mapLayer);
+            Warlock.ui.stage.add(Warlock.ui.infoLayer);
+
+            /* Create some basic ui functions. */
+            Warlock.ui.redraw = function() {
+                Warlock.ui.mapLayer.draw();
+                Warlock.ui.infoLayer.draw();
             };
-            var config = $.extend(base, config);
-            return new Kinetic.Rect(config);
-        }
 
-        Warlock.ui.unitInfoRect = uiRect({
-            width: 150,
-            height: 100
-        });
+            Warlock.ui.clearUnitDetails = function() {
+                Warlock.ui.unitInfoText.setText("");
+                Warlock.ui.infoLayer.draw();
+            };
 
-
-        Warlock.ui.unitInfoText = new Kinetic.Text({
-            text: 'UNIT INFO',
-            fontSize: 18,
-            fontFamily: 'Calibri',
-            fill: 'black',
-            width: Warlock.ui.unitInfoRect.getWidth(),
-            padding: 10,
-            align: 'center'
-        });
-
-        Warlock.ui.unitInfoGroup = new Kinetic.Group({
-            opacity: 0.8,
-            x: 1,
-            y: Warlock.ui.stage.getHeight() - Warlock.ui.unitInfoRect.getHeight() - 1,
-        });
-        Warlock.ui.unitInfoGroup.add(Warlock.ui.unitInfoRect);
-        Warlock.ui.unitInfoGroup.add(Warlock.ui.unitInfoText);
-        Warlock.ui.infoLayer.add(Warlock.ui.unitInfoGroup);
-
-        Warlock.ui.endTurnButton = uiRect({
-            width: 100,
-            height: 30,
-        });
-        Warlock.ui.endTurnText = new Kinetic.Text({
-            text: 'END TURN',
-            fontSize: 14,
-            fontFamily: 'Calibri',
-            fill: 'black',
-            width: Warlock.ui.endTurnButton.getWidth(),
-            align: 'center',
-            y: 8
-        });
-        Warlock.ui.endTurnGroup = new Kinetic.Group({
-            opacity: 0.8,
-            x: Warlock.ui.stage.getWidth() - Warlock.ui.endTurnButton.getWidth() - 1,
-            y: Warlock.ui.stage.getHeight() - Warlock.ui.endTurnButton.getHeight() - 1
-        });
-        Warlock.ui.endTurnGroup.add(Warlock.ui.endTurnButton);
-        Warlock.ui.endTurnGroup.add(Warlock.ui.endTurnText);
-        Warlock.ui.infoLayer.add(Warlock.ui.endTurnGroup);
-        Warlock.ui.endTurnGroup.on('click', function(event) {
-            $.get("/endturn", function(string) {
-                alert(string)
-                Warlock.endTurn();
-            })            
-        });
-        
-
-        /* Add layers to stage. */
-        Warlock.ui.stage.add(Warlock.ui.mapLayer);
-        Warlock.ui.stage.add(Warlock.ui.infoLayer);
-
-        /* Create some basic ui functions. */
-        Warlock.ui.redraw = function() {
-            Warlock.ui.mapLayer.draw();
-            Warlock.ui.infoLayer.draw();
-        };
-
-        Warlock.ui.clearUnitDetails = function() {
-            Warlock.ui.unitInfoText.setText("");
-            Warlock.ui.infoLayer.draw();
-        };
-
-        Warlock.ui.actionButtons = [];
-        Warlock.ui.clearActionButtons = function() {
-            for( i in Warlock.ui.actionButtons ) {
-                Warlock.ui.actionButtons[i].remove();
-            }
             Warlock.ui.actionButtons = [];
-        };
-        Warlock.ui.setActionButtons = function(unit) {
-            Warlock.ui.clearActionButtons();
+            Warlock.ui.clearActionButtons = function() {
+                for( i in Warlock.ui.actionButtons ) {
+                    Warlock.ui.actionButtons[i].remove();
+                }
+                Warlock.ui.actionButtons = [];
+            };
+            Warlock.ui.setActionButtons = function(unit) {
+                Warlock.ui.clearActionButtons();
 
-            var actions = unit.actions;
+                var actions = unit.actions;
 
-            for( var i = 0; i < actions.length; i++ ) {
-                (function() {
-                    var action = actions[i];
-                    var rect = uiRect({
-                        width: Warlock.ui.unitInfoRect.getWidth(),
-                        height: 30
-                    });
-                    var text = new Kinetic.Text({
-                        text: action.getName(),
-                        fontSize: 16,
-                        fontFamily: 'Calibri',
-                        fill: 'black',
-                        width: rect.getWidth(),
-                        align: 'center',
-                        y: 8
-                    });
-                    var group = new Kinetic.Group({
-                        opacity: 0.8,
-                        x: 1,
-                        y: Warlock.ui.unitInfoGroup.getY() - (30 * (actions.length - i))
-                    });
-                    group.on('mouseenter', function(event) {
-                        group.setOpacity(1.0);
-                        Warlock.ui.infoLayer.draw();
-                    });
-                    group.on('mouseleave', function(event) {
-                        group.setOpacity(0.8);
-                        Warlock.ui.infoLayer.draw();
-                    });
-                    group.on('click', function(event) {
-                        Warlock.startAction(unit, action);
-                    });
-                    group.add(rect);
-                    group.add(text);
-                    Warlock.ui.actionButtons.push(group);
-                    Warlock.ui.infoLayer.add(group);
-                })();
-            }
+                for( var i = 0; i < actions.length; i++ ) {
+                    (function() {
+                        var action = actions[i];
+                        var rect = uiRect({
+                            width: Warlock.ui.unitInfoRect.getWidth(),
+                            height: 30
+                        });
+                        var text = new Kinetic.Text({
+                            text: action.getName(),
+                            fontSize: 16,
+                            fontFamily: 'Calibri',
+                            fill: 'black',
+                            width: rect.getWidth(),
+                            align: 'center',
+                            y: 8
+                        });
+                        var group = new Kinetic.Group({
+                            opacity: 0.8,
+                            x: 1,
+                            y: Warlock.ui.unitInfoGroup.getY() - (30 * (actions.length - i))
+                        });
+                        group.on('mouseenter', function(event) {
+                            group.setOpacity(1.0);
+                            Warlock.ui.infoLayer.draw();
+                        });
+                        group.on('mouseleave', function(event) {
+                            group.setOpacity(0.8);
+                            Warlock.ui.infoLayer.draw();
+                        });
+                        group.on('click', function(event) {
+                            Warlock.startAction(unit, action);
+                        });
+                        group.add(rect);
+                        group.add(text);
+                        Warlock.ui.actionButtons.push(group);
+                        Warlock.ui.infoLayer.add(group);
+                    })();
+                }
+            };
         };
 
         Warlock.socket = io.connect('http://localhost');
-        Warlock.socket.on('connect', function(data) {
+        Warlock.socket.emit('ready', prompt('Some data, please.'));
+        Warlock.socket.on('load-game', function(data) {
             Messages.println( 'Connected to server.' );
-        });
+            Messages.println( 'at: ' + data.loginDate );
+            Messages.println( 'info: ' + data.info );
 
-        Warlock.players.push(Warlock.test.player0);
-        Warlock.players.push(Warlock.test.player1);
-        Warlock.loadMap(Warlock.test.map);
-        Warlock.addUnit(Warlock.test.ratmen, Warlock.test.map.hexes[2][2]);
-        Warlock.addUnit(Warlock.test.shamans, Warlock.test.map.hexes[4][1]);
-        Warlock.addUnit(Warlock.test.warriors, Warlock.test.map.hexes[3][3]);
-        Warlock.currentPlayer = Warlock.test.player0;
-        Warlock.ui.redraw();
+
+            /* Block the browser context menu on the canvas. */
+            document
+                .querySelector('#game-container')
+                .addEventListener('contextmenu', function(e) {
+                    e.preventDefault();
+                });
+
+
+            // Only load resources after successful socket connection.
+            // The socket connection guarantees that the page has loaded correctly
+            // and the resources are really needed.
+            Warlock.loader = new PxLoader();
+            Warlock.loader.addImage('images/ufo.png'); 
+
+            // callback that will be run once images are ready.
+            // When all of the images have finished loading, start up the game.
+            Warlock.loader.addCompletionListener(function() { 
+                console.log( 'Resources loaded.' );
+                console.log( 'Starting game.' );
+                Warlock.setupStage();
+                data.players.forEach(function(player) {
+                    Warlock.players[player.id] = player;
+                });
+                Warlock.loadMap(Warlock.test.map);
+                data.units.forEach(function(unitConfig) {
+                    Warlock.addUnit(unitConfig);
+                });
+                Warlock.currentPlayer = Warlock.players[data.currentPlayerId];
+                Warlock.ui.redraw();
+            }); 
+            
+            // begin downloading images 
+            Warlock.loader.start();     
+        });
 
     })( window.Warlock = window.Warlock || {} );
 

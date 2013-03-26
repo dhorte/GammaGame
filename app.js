@@ -1,16 +1,8 @@
-
-/**
- * Module dependencies.
- */
-
-var express = require('express');
-var passport = require('passport');
-var http = require('http');
 var path = require('path');
-var sio = require('socket.io');
+var express = require('express.io');
+var passport = require('passport');
 
-var routes = require('./routes');
-
+var app = express().http().io();
 
 /* Configure Passport */
 
@@ -26,11 +18,9 @@ var GoogleStrategy = require('passport-google').Strategy;
 passport.serializeUser(function(user, done) {
   done(null, user);
 });
-
 passport.deserializeUser(function(obj, done) {
   done(null, obj);
 });
-
 
 // Use the GoogleStrategy within Passport.
 //   Strategies in passport require a `validate` function, which accept
@@ -57,44 +47,28 @@ passport.use(new GoogleStrategy({
 
 /* Configure App */
 
-var app = express();
-
-app.configure(function(){
+app.configure(function() {
+    /* Environment variables */
     app.set('port', process.env.PORT || 3000);
-    app.set('views', __dirname + '/views');
     app.set('view engine', 'jade');
-    app.use(express.favicon());
-    app.use(express.logger('dev'));
-    app.use(express.bodyParser());
-    app.use(express.methodOverride());
+
+    /* Paths */
+    app.set('views', __dirname + '/views');
     app.use(express.static(path.join(__dirname, 'public')));
 
-    /* 
-     * Sessions, including passport authentication.
-     * Also use passport.session() middleware, to suppose persistent login sessions.
-     */
+    /* Setup Sessions with Authentication */
     app.use(express.cookieParser());
-    app.use(express.session({ secret: 'wallowing walruses' }));
+    app.use(express.session({secret: 'flying yellow monkeys of doom'}));
     app.use(passport.initialize());
     app.use(passport.session());
-
-    /*
-     * Needs to be after passport.initialize.
-     * http://stackoverflow.com/questions/10497349/why-does-passport-js-give-me-a-middleware-error
-     */
-    app.use(app.router);
-
 });
 
-app.configure('development', function(){
-    app.use(express.errorHandler());
-});
+
+/* Routes */
 
 /* Authentication routes */
-app.get('/', function(req, res) {
-    res.render('index', { title: 'Warlock', user: req.user });
-});
-    
+
+/* Session is automatically setup on initial request thanks to express.io */
 app.get('/login', function(req, res) {
     res.render('login', { title: 'Login', user: req.user });
 });
@@ -126,24 +100,85 @@ app.get('/auth/google/return',
     res.redirect('/');
   });
 
-app.get('/kinetic', routes.kinetic);
-app.get('/socket', routes.socket);
-app.get('/game/:gameid', function(req, res) {
-    res.send('Welcome to game: ' + req.params.gameid);
-});
-app.get('/endturn', function(req, res) {
-    res.send('You have ended your turn.');
-});
 
-var server = http.createServer(app).listen(app.get('port'), function(){
-    console.log("Express server listening on port " + app.get('port'));
+app.get('/', function(req, res) {
+    for( key in req ) {
+        console.log( key + ' -> ' + req[key] );
+    }
+    req.session.loginDate = new Date().toString();
+    console.log('user: ' + req.user);
+    res.render('index', { title: 'Warlock', user: req.user });
 });
 
-var io = sio.listen(server);
+// Authentication for the socket connection.
+app.use(function(req, res, next) {
+    console.log('log: %s %s %s', req.method, req.url, req.session.user);
+    next();
+});    
 
-io.sockets.on('connection', function (socket) {
-    socket.emit('connect', {});
-    socket.on('end turn', function (data) {
-        console.log(data);
+app.use(function(req, res, next) {
+    console.log('Perform authentication: ', req.method, req.url);
+    next();
+});    
+
+// Setup a route for the ready event, and add session data.
+app.io.route('ready', function(req) {
+    req.session.info = req.data;
+    req.session.save(function() {
+        req.io.emit('load-game', {
+            currentPlayerId: 0,
+            players: [
+                { id: 0, color: 'red' },
+                { id: 1, color: 'blue' },
+            ],
+            units: [
+                {
+                    name: 'shamans',
+                    player_id: 0,
+                    power: 10,
+                    powerKind: 'spirit',
+                    hp: 20,
+                    move: 3,
+                    actions: [
+                        {
+                            name: 'heal',
+                            kind: 'heal',
+                            range: 2,
+                            damageType: 'life',
+                        },
+                    ],
+                    pos: { row: 4, col: 1 },
+                },
+                {
+                    name: 'ratmen',
+                    player_id: 0,
+                    power: 8,
+                    powerKind: 'melee',
+                    hp: 16,
+                    move: 5,
+                    damageMod: {
+                        death: 0.5
+                    },
+                    pos: { row: 2, col: 2 },
+                },
+                {
+                    name: 'warriors',
+                    player_id: 1,
+                    power: 8,
+                    powerKind: 'melee',
+                    hp: 24,
+                    move: 3,
+                    resistance: {
+                        melee: 0.4
+                    },
+                    pos: { row: 3, col: 3 },
+                },
+            ]
+        });
     });
+});
+
+/* Start app */
+app.listen(app.get('port'), function() {
+    console.log("Express server listening on port " + app.get('port'))
 });
