@@ -2,6 +2,8 @@ var path = require('path');
 var express = require('express.io');
 var passport = require('passport');
 
+var Warlock = require('./public/javascripts/warlock-base.js');
+
 var app = express().http().io();
 
 /* Configure Passport */
@@ -123,60 +125,28 @@ app.use(function(req, res, next) {
 
 // Setup a route for the ready event, and add session data.
 app.io.route('ready', function(req) {
-    req.session.info = req.data;
+    var test = require('./data/test.js');
     req.session.save(function() {
         req.io.emit('load-game', {
+            loginDate: req.session.loginDate,
+            info: req.data,
             currentPlayerId: 0,
-            players: [
-                { id: 0, color: 'red' },
-                { id: 1, color: 'blue' },
-            ],
-            map: require( './data/test.js' ).map,
-            units: [
-                {
-                    name: 'shamans',
-                    player_id: 0,
-                    power: 10,
-                    powerKind: 'spirit',
-                    hp: 20,
-                    move: 3,
-                    actions: [
-                        {
-                            name: 'heal',
-                            kind: 'heal',
-                            range: 2,
-                            damageType: 'life',
-                        },
-                    ],
-                    pos: { row: 4, col: 1 },
-                },
-                {
-                    name: 'ratmen',
-                    player_id: 0,
-                    power: 8,
-                    powerKind: 'melee',
-                    hp: 16,
-                    move: 5,
-                    damageMod: {
-                        death: 0.5
-                    },
-                    pos: { row: 2, col: 2 },
-                },
-                {
-                    name: 'warriors',
-                    player_id: 1,
-                    power: 8,
-                    powerKind: 'melee',
-                    hp: 24,
-                    move: 3,
-                    resistance: {
-                        melee: 0.4
-                    },
-                    pos: { row: 3, col: 3 },
-                },
-            ]
+            players: test.players,
+            map: test.map,
+            units: test.units,
         });
     });
+});
+
+app.io.route('attack', function(req) {
+    // Convert data ids into game objects.
+    // Determine if attack is legal.
+    // Calculate attack damage.
+    // Calculate counter-attack damage, if applicable.
+    // Apply damage to units.
+    // Update unit statuses based on attack effects.
+    // Set attacker movement to zero.
+    // Notify client of changes to state.
 });
 
 /* Start app */

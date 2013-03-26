@@ -1,4 +1,5 @@
-var Warlock = require('./warlock.js');
+// var Warlock = require('./warlock.js');
+var Warlock = require('../public/javascripts/warlock-base.js');
 
 exports.map = (function() {
 
@@ -38,18 +39,68 @@ exports.map = (function() {
         for( col in map.hexes[row] ) {
             var height = (function() {
                 var x = Math.random();
-                if( x < 0.1 ) return Warlock.WATER
-                else if( x < 0.2 ) return Warlock.MOUNTAINS
-                else if( x < 0.6 ) return Warlock.HILLS
-                else return Warlock.PLAINS
+                if( x < 0.1 ) return Warlock.elevation.WATER
+                else if( x < 0.2 ) return Warlock.elevation.MOUNTAINS
+                else if( x < 0.6 ) return Warlock.elevation.HILLS
+                else return Warlock.elevation.PLAINS
             })();
             map.hexes[row][col].terrain = {
                 height: height,
-                climate: Warlock.FERTILE,
-                vegetation: Warlock.CLEAR
+                climate: Warlock.climate.FERTILE,
+                vegetation: Warlock.vegetation.CLEAR
             };
         }
     }
 
     return map;
 })();
+
+exports.players = [
+    { id: 0, color: 'red' },
+    { id: 1, color: 'blue' },
+];
+
+exports.units = [
+    {
+        name: 'shamans',
+        player_id: 0,
+        power: 10,
+        powerKind: 'spirit',
+        hp: 20,
+        move: 3,
+        actions: [
+            {
+                name: 'heal',
+                kind: 'heal',
+                range: 2,
+                damageType: 'life',
+            },
+        ],
+        pos: { row: 4, col: 1 },
+    },
+    {
+        name: 'ratmen',
+        player_id: 0,
+        power: 8,
+        powerKind: 'melee',
+        hp: 16,
+        move: 5,
+        damageMod: {
+            death: 0.5
+        },
+        pos: { row: 2, col: 2 },
+    },
+    {
+        name: 'warriors',
+        player_id: 1,
+        power: 8,
+        powerKind: 'melee',
+        hp: 24,
+        move: 3,
+        resistance: {
+            melee: 0.4
+        },
+        pos: { row: 3, col: 3 },
+    },
+];
+
