@@ -279,7 +279,9 @@ if (!Array.prototype.filter)
  */
 (function( Warlock, undefined ) {
     /* Load a map, given the details in the form of a map object. */
-    Warlock.loadMap = function(map) {
+    Warlock.loadMap = function(mapConfig) {
+
+        var map = new Warlock.Map(mapConfig);
 
         Warlock.map = map;
 
@@ -790,6 +792,7 @@ if (!Array.prototype.filter)
 
     Warlock.Hex = function(config) {
         this._initHex(config);
+        this.setTerrain(new Warlock.Terrain(config.terrain));
     };
 
     Warlock.Hex.prototype = {
@@ -798,15 +801,12 @@ if (!Array.prototype.filter)
             /* Required for object creation. */
             this.row = config.row;
             this.col = config.col;
+            this.terrain = null;
 
             /* Optional */
-            this.unit = config.unit || null;
-            this.terrain = config.terrain || {
-                height: Warlock.NO_HEIGHT,
-                env: Warlock.NO_ENV
-            };
 
             /* Calculated from other values. */
+            this.unit = null;
             this.type = 'Hex';
             this.diag = this.col + Math.floor( this.row / 2 );
             this.hashKey = 'hex' + this.row + ',' + this.col;
@@ -845,16 +845,6 @@ if (!Array.prototype.filter)
                 name: 'hex outline ' + config.row + ', ' + config.row
             });
             this.elem.add(this.ui.outline);
-
-            // this.ui.redHighlight = new Kinetic.RegularPolygon({
-            //     sides: 6,
-            //     radius: Warlock.HEX_RAD * 0.95,
-            //     stroke: 'red',
-            //     strokeWidth: 1.5,
-            //     visible: false,
-            //     name: 'hex redHighlight ' + config.row + ', ' + config.row
-            // });
-            // this.elem.add(this.ui.redHighlight);
 
             this.ui.highlight = new Kinetic.RegularPolygon({
                 sides: 6,
@@ -1000,29 +990,11 @@ if (!Array.prototype.filter)
             /* The hexes that compose the map. */
             this.hexes = [];
 
-            var rowCount = 0;
-            var colCount = 0;
-            var numCols = this.cols;
-            while( rowCount < this.rows ) {
-                var hexRow = [];
-
-                /* Alternate the length of the rows to make a nicely shaped map. */
-                if( rowCount % 2 == 0 ) numCols -= 1
-                else numCols += 1
-
-                while( colCount < numCols ) {
-                    var hex = new Warlock.Hex({
-                        row: rowCount,
-                        col: colCount,
-                    });
-                    hexRow.push(hex);
-
-                    colCount += 1;
+            for( row in config.hexes ) {
+                this.hexes.push([]);
+                for( col in config.hexes[row] ) {
+                    this.hexes[row].push(new Warlock.Hex(config.hexes[row][col]));
                 }
-
-                this.hexes.push(hexRow);
-                rowCount += 1;
-                colCount = 0;
             }
         },
 
@@ -1064,13 +1036,6 @@ if (!Array.prototype.filter)
             return nbs;
         },
     };
-
-    Warlock.test.map = new Warlock.Map({
-        name: 'test map',
-        rows: 15,
-        cols: 15
-    });
-    Warlock.generateTerrain(Warlock.test.map);
 
 })( window.Warlock = window.Warlock || {} );
 
@@ -1500,7 +1465,7 @@ $(document).ready(function() {
                 data.players.forEach(function(player) {
                     Warlock.players[player.id] = player;
                 });
-                Warlock.loadMap(Warlock.test.map);
+                Warlock.loadMap(data.map);
                 data.units.forEach(function(unitConfig) {
                     Warlock.addUnit(unitConfig);
                 });

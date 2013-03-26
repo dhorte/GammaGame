@@ -102,9 +102,9 @@ app.get('/auth/google/return',
 
 
 app.get('/', function(req, res) {
-    for( key in req ) {
-        console.log( key + ' -> ' + req[key] );
-    }
+    // for( key in req ) {
+    //     console.log( key + ' -> ' + req[key] );
+    // }
     req.session.loginDate = new Date().toString();
     console.log('user: ' + req.user);
     res.render('index', { title: 'Warlock', user: req.user });
@@ -131,6 +131,7 @@ app.io.route('ready', function(req) {
                 { id: 0, color: 'red' },
                 { id: 1, color: 'blue' },
             ],
+            map: require( './data/test.js' ).map,
             units: [
                 {
                     name: 'shamans',
