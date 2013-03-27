@@ -49,11 +49,6 @@
     Warlock.moveHexes = [];        // The hexes that the selected unit can move to.
     Warlock.moveRemain = {};       // For each hex in moveHexes, cost of moving there.
     Warlock.targetHexes = [];      // The hexes that the current unit action can target.
-    Warlock.blockClick = false;    // Used to prevent a click event after dragging.
-
-    /* Objects used for testing. Should not be included in release. */
-    Warlock.test = {};
-
 
 })( window.Warlock = window.Warlock || {} );
 
@@ -94,7 +89,7 @@
             steps[i + 1] = [];
             steps[i].forEach(function(curr) {
                 disc.push(curr);
-                curr.getNeighbors().forEach(function(nb) {
+                Warlock.map.getNeighbors(curr).forEach(function(nb) {
                     if( $.inArray(nb, done) == -1 ) {
                         steps[i + 1].push(nb);
                         done.push(nb);
@@ -138,7 +133,7 @@
         /* Add the hexes from the map to the mapLayer. */
         for( row in map.hexes ) {
             for( col in map.hexes[row] ) {
-                Warlock.ui.mapLayer.add(map.hexes[row][col].elem);
+                Warlock.ui.mapLayer.add(map.hexes[row][col].ui.elem);
             }
         }
 
@@ -240,10 +235,10 @@
             for( i in todo[currentlyHandling] ) {
                 var hex = todo[currentlyHandling][i];
                 done.push(hex);
-                remain[hex.hashKey] = currentlyHandling;
+                remain[hex.getHashKey()] = currentlyHandling;
 
                 /* Find any neighbors that haven't been done, and get ready to do them. */
-                var nbs = hex.getNeighbors();
+                var nbs = Warlock.map.getNeighbors(hex);
                 for( n in nbs ) {
                     if( $.inArray(nbs[n], queue) == -1 ) {
                         var nbCost = unit.moveCost(nbs[n]);
@@ -305,7 +300,7 @@
             unit.getPlayer() == Warlock.currentPlayer &&
             $.inArray(destHex, Warlock.moveHexes) >= 0
           ) {
-            unit.setMove( Warlock.moveRemain[destHex.hashKey] );
+            unit.setMove( Warlock.moveRemain[destHex.getHashKey()] );
             unit.moveToHex(destHex);
             Warlock.selectUnit(unit);
 
@@ -328,14 +323,15 @@
 
         Warlock.units.push(unit);
         unit.hex = hex;
-        hex.addUnit(unit);
+        hex.setUnit(unit);
+        hex.ui.setUnit(unit);
     };
 
     Warlock.showMoveOutlines = function() {
         for( i in Warlock.moveHexes ) {
-            var finalMove = Warlock.moveRemain[Warlock.moveHexes[i].hashKey] <= 0;
+            var finalMove = Warlock.moveRemain[Warlock.moveHexes[i].getHashKey()] <= 0;
             var activeUnit = Warlock.selectedUnit.getPlayer() == Warlock.currentPlayer;
-            Warlock.moveHexes[i].outline({
+            Warlock.moveHexes[i].ui.outline({
                 color: finalMove ? 'red' : 'magenta',
                 opacity: activeUnit ? 1.0 : 0.6
             });
@@ -344,13 +340,13 @@
 
     Warlock.clearMoveOutlines = function() {
         for (i in Warlock.moveHexes) {
-            Warlock.moveHexes[i].outline(false);
+            Warlock.moveHexes[i].ui.outline(false);
         }
     };
 
     Warlock.showTargetOutlines = function() {
         Warlock.targetHexes.forEach(function(hex) {
-            hex.outline({
+            hex.ui.outline({
                 color: 'white',
                 opacity: 1.0
             });
@@ -360,7 +356,7 @@
     Warlock.clearTargetOutlines = function() {
         Warlock.targetHexes.forEach(function(hex) {
             hex.keepHighlight = false;
-            hex.outline(false);
+            hex.ui.outline(false);
         });
     }
 
@@ -543,219 +539,140 @@
 })( window.Warlock = window.Warlock || {} );
 
 
-/*
- * Terrain
- */
-(function( Warlock, undefined ) {
-    Warlock.Terrain = function(config) {
-        this._initTerrain(config)
-    };
-
-
-    Warlock.Terrain.prototype = {
-        _initTerrain: function(config) {
-            
-            /* Required for object creation. */
-            this.height = config.height;
-            this.climate = config.climate;
-            this.veg = config.veg;
-
-            /* Calculated from other values. */
-            this.type = 'Terrain';
-            this.color = this._setColor();
-
-            /* Display elements. */
-            this.elem = new Kinetic.Group();
-        },
-
-        _setColor: function() {
-            switch(this.height) {
-            case Warlock.elevation.WATER:     return 'blue';
-            case Warlock.elevation.PLAINS:    return '#7CFC00';
-            case Warlock.elevation.HILLS:     return '#8B4513';
-            case Warlock.elevation.MOUNTAINS: return '#aaa';
-            }
-        },
-    };
-
-})( window.Warlock = window.Warlock || {} );
-
-
 
 /*
- * Hexes
+ * Extend Warlock.Hex to include the visual elements used for rendering.
  */
 (function( Warlock, undefined ) {
 
-    Warlock.Hex = function(config) {
-        this._initHex(config);
-        this.setTerrain(new Warlock.Terrain(config.terrain));
-    };
+    // Warlock.Hex = function(config) {
+    //     this._initHex(config);
+    //     this.setTerrain(new Warlock.Terrain(config.terrain));
+    // };
 
-    Warlock.Hex.prototype = {
-        _initHex: function(config) {
+    Warlock.Hex.prototype.initializeUI = function() {
+        var hexRef = this;
+        var row = this.getRow();
+        var col = this.getCol();
+        var colOffset = this.getRow() % 2 == 1 ? Warlock.HALF_HEX_WIDTH : Warlock.HEX_WIDTH;
 
-            /* Required for object creation. */
-            this.row = config.row;
-            this.col = config.col;
-            this.terrain = null;
+        this.ui = {};
+        this.ui.keepHighlight = false;
 
-            /* Optional */
+        this.ui.elem = new Kinetic.Group({
+            x: col * Warlock.HEX_WIDTH + colOffset,
+            y: (0.5 + Warlock.SIN_PI_6 + (1.5 * row)) * Warlock.HEX_RAD,
+            name: 'hex elem ' + row + ',' + col,
+        });
+        
+        this.ui.backgroundElem = new Kinetic.RegularPolygon({
+            sides: 6,
+            radius: Warlock.HEX_RAD,
+            fill: this.getTerrain().color,
+            stroke: 'black',
+            strokeWidth: 1,
+            name: 'hex background ' + row + ', ' + col,
+        });
+        this.ui.elem.add(this.ui.backgroundElem);
 
-            /* Calculated from other values. */
-            this.unit = null;
-            this.type = 'Hex';
-            this.diag = this.col + Math.floor( this.row / 2 );
-            this.hashKey = 'hex' + this.row + ',' + this.col;
-            this.keepHighlight = false;
+        this.ui.outlineElem = new Kinetic.RegularPolygon({
+            sides: 6,
+            radius: Warlock.HEX_RAD * 0.92,
+            stroke: 'blue',
+            strokeWidth: 3,
+            visible: false,
+            name: 'hex outline ' + row + ', ' + col,
+        });
+        this.ui.elem.add(this.ui.outlineElem);
 
-            /* Storage container for ui elements. */
-            this.ui = {};
+        this.ui.highlightElem = new Kinetic.RegularPolygon({
+            sides: 6,
+            radius: this.ui.backgroundElem.getRadius(),
+            fill: 'white',
+            strokeWidth: 0,
+            opacity: 0.2,
+            visible: false,
+            name: 'hex mouseOver ' + row + ', ' + col,
+        });
+        this.ui.elem.add(this.ui.highlightElem);
 
-            var colOffset = this.row % 2 == 1 ? Warlock.HALF_HEX_WIDTH : Warlock.HEX_WIDTH;
+        
 
-            /* Rendering elements */
-            this.elem = new Kinetic.Group({
-                x: this.col * Warlock.HEX_WIDTH + colOffset,
-                y: (0.5 + Warlock.SIN_PI_6 + (1.5 * this.row)) * Warlock.HEX_RAD,
-                name: 'hex elem ' + config.row + ',' + config.col,
-            });
-            var elemRef = this.elem;
-            var hexRef = this;
-
-            this.ui.background = new Kinetic.RegularPolygon({
-                sides: 6,
-                radius: Warlock.HEX_RAD,
-                fill: 'magenta',
-                stroke: 'black',
-                strokeWidth: 1,
-                name: 'hex background ' + config.row + ', ' + config.row
-            });
-            this.elem.add(this.ui.background);
-
-            this.ui.outline = new Kinetic.RegularPolygon({
-                sides: 6,
-                radius: Warlock.HEX_RAD * 0.92,
-                stroke: 'blue',
-                strokeWidth: 3,
-                visible: false,
-                name: 'hex outline ' + config.row + ', ' + config.row
-            });
-            this.elem.add(this.ui.outline);
-
-            this.ui.highlight = new Kinetic.RegularPolygon({
-                sides: 6,
-                radius: this.ui.background.getRadius(),
-                fill: 'white',
-                strokeWidth: 0,
-                opacity: 0.2,
-                visible: false,
-                name: 'hex mouseOver ' + config.row + ', ' + config.row
-            });
-            this.elem.add(this.ui.highlight);
-            this.elem.on('mouseenter', function(event) {
-                if( !hexRef.keepHighlight ) {
-                    /* Turn on the white highlight to show what is being mouse overed. */
-                    hexRef.highlight({
-                        color: 'white',
-                        opacity: 0.3
-                    });
-                    Warlock.ui.mapLayer.draw();
-                }
-            });
-            this.elem.on('mouseleave', function(event) {
-                if( !hexRef.keepHighlight ) {
-                    hexRef.highlight(false);
-                    Warlock.ui.mapLayer.draw();
-                }
-            });
-            this.elem.on('click', function(event) {
-                // console.log( 'received click at: ' + elemRef.getName() );
-
-                if( Warlock.blockClick ) {
-                    Warlock.blockClick = false;
-                    return;
-                }
-
-                /* Execute action on this target. */
-                else if(
-                    event.which == Warlock.RIGHT_CLICK &&
-                    $.inArray(hexRef, Warlock.targetHexes) >= 0
-                ) {
-                    Warlock.executeAction(hexRef);
-                }
-
-                else if( hexRef.unit != null ) {
-                    if( event.which == Warlock.LEFT_CLICK ) {
-                        Warlock.selectUnit(hexRef.unit);
-                    }
-                }
-
-                else {
-                    if( event.which == Warlock.LEFT_CLICK ) {
-                        Warlock.unselectUnit();
-                    }
-
-                    else if( event.which == Warlock.RIGHT_CLICK ) {
-                        Warlock.moveSelectedUnit(hexRef);
-                    }
-                }
-
-                Warlock.ui.redraw();
-            });
-        },
-
-        /**
-         * cached result of getNeighbors.
-         */
-        _neighbors: null,
-
-        /**
-         * @return All hexes adjacent to this hex.
-         */
-        getNeighbors: function() {
-            if( this._neighbors == null ) {
-                this._neighbors = Warlock.map.calcNeighbors(this);
+        this.ui.elem.on('mouseenter', function(event) {
+            if( !hexRef.ui.keepHighlight ) {
+                /* Turn on the white highlight to show what is being mouse overed. */
+                hexRef.ui.highlight({
+                    color: 'white',
+                    opacity: 0.3
+                });
+                Warlock.ui.mapLayer.draw();
             }
-            return this._neighbors;
-        },
+        });
+        this.ui.elem.on('mouseleave', function(event) {
+            if( !hexRef.ui.keepHighlight ) {
+                hexRef.ui.highlight(false);
+                Warlock.ui.mapLayer.draw();
+            }
+        });
+        this.ui.elem.on('click', function(event) {
 
-        getName: function() {
-            return this.hashKey;
-        },
+            if( Warlock.ui.blockClick ) {
+                Warlock.ui.blockClick = false;
+                return;
+            }
 
-        addUnit: function(unit) {
-            console.assert(this.unit == null);
-            this.unit = unit;
-            this.elem.add(unit.elem);
-        },
+            /* Execute action on this target. */
+            else if (event.which == Warlock.RIGHT_CLICK &&
+                     $.inArray(hexRef, Warlock.targetHexes) >= 0
+            ) {
+                Warlock.executeAction(hexRef);
+            }
 
-        outline: function(config) {
+            else if( hexRef.unit != null ) {
+                if( event.which == Warlock.LEFT_CLICK ) {
+                    Warlock.selectUnit(hexRef.unit);
+                }
+            }
+
+            else {
+                if( event.which == Warlock.LEFT_CLICK ) {
+                    Warlock.unselectUnit();
+                }
+
+                else if( event.which == Warlock.RIGHT_CLICK ) {
+                    Warlock.moveSelectedUnit(hexRef);
+                }
+            }
+
+            Warlock.ui.redraw();
+        });
+
+        this.ui.outline = function(config) {
             if( config === false ) {
-                this.ui.outline.setVisible(false);
+                hexRef.ui.outlineElem.setVisible(false);
             }
             else {
-                this.ui.outline.setVisible(true);
-                this.ui.outline.setStroke(config.color || this.ui.outline.getStroke());
-                this.ui.outline.setOpacity(config.opacity || this.ui.outline.getOpacity());
+                hexRef.ui.outlineElem.setVisible(true);
+                hexRef.ui.outlineElem.setStroke(config.color || hexRef.ui.outlineElem.getStroke());
+                hexRef.ui.outlineElem.setOpacity(config.opacity || hexRef.ui.outlineElem.getOpacity());
             }
-        },
+        };
 
-        highlight: function(config) {
+        this.ui.highlight = function(config) {
             if( config === false ) {
-                this.ui.highlight.setVisible(false);
+                hexRef.ui.highlightElem.setVisible(false);
             }
             else {
-                this.ui.highlight.setFill(config.color || this.ui.highlight.getFill());
-                this.ui.highlight.setOpacity(config.opacity || this.ui.highlight.getOpacity());
-                this.ui.highlight.setVisible(true);
+                hexRef.ui.highlightElem.setFill(config.color || hexRef.ui.highlightElem.getFill());
+                hexRef.ui.highlightElem.setOpacity(config.opacity || hexRef.ui.highlightElem.getOpacity());
+                hexRef.ui.highlightElem.setVisible(true);
             }
-        },
+        };
 
-        setTerrain: function(terrain) {
-            this.terrain = terrain;
-            this.ui.background.setFill(terrain.color);
-        },
+        this.ui.setUnit = function(unit) {
+            console.assert(unit != null);
+            hexRef.ui.elem.add(unit.elem)
+        };
     };
 
 })( window.Warlock = window.Warlock || {} );
@@ -790,16 +707,18 @@
             for( row in config.hexes ) {
                 this.hexes.push([]);
                 for( col in config.hexes[row] ) {
-                    this.hexes[row].push(new Warlock.Hex(config.hexes[row][col]));
+                    var hex = new Warlock.Hex(config.hexes[row][col])
+                    hex.initializeUI();
+                    this.hexes[row].push(hex);
                 }
             }
         },
 
         calcNeighbors: function(hex) {
             /* Convenience declarations. */
-            var row = hex.row;
-            var col = hex.col;
-            var hexes = Warlock.map.hexes;
+            var row = hex.getRow();
+            var col = hex.getCol();
+            var hexes = this.hexes;
 
             /* Store of currently calculated neighbors. Will be returned. */
             var nbs = []
@@ -831,6 +750,13 @@
             }
 
             return nbs;
+        },
+
+        getNeighbors: function(hex) {
+            if( hex._neighbors == null ) {
+                hex._neighbors = this.calcNeighbors(hex);
+            }
+            return hex._neighbors;
         },
     };
 
@@ -1018,18 +944,19 @@
                 else return Number.MAX_VALUE;
             }
             else {
+                var terrain = hex.getTerrain();
                 /* Impassable terrain. */
-                if( hex.terrain.height == Warlock.MOUNTAINS ||
-                    hex.terrain.height == Warlock.WATER ) return Number.MAX_VALUE;
+                if( terrain.height == Warlock.elevation.MOUNTAINS ||
+                    terrain.height == Warlock.elevation.WATER ) return Number.MAX_VALUE;
 
                 /* Vegetation. */
-                else if( hex.terrain.veg == Warlock.FOREST ) return 2;
-                else if( hex.terrain.veg == Warlock.JUNGLE ) return 2;
-                else if( hex.terrain.veg == Warlock.SWAMP ) return 4;
+                else if( terrain.veg == Warlock.vegetation.FOREST ) return 2;
+                else if( terrain.veg == Warlock.vegetation.JUNGLE ) return 2;
+                else if( terrain.veg == Warlock.vegetation.SWAMP ) return 4;
 
                 /* Raw terrain. */
-                else if( hex.terrain.height == Warlock.PLAINS ) return 1;
-                else if( hex.terrain.height == Warlock.HILLS ) return 2;
+                else if( terrain.height == Warlock.elevation.PLAINS ) return 1;
+                else if( terrain.height == Warlock.elevation.HILLS ) return 2;
                 else throw "unknown terrain";
             }
         },
@@ -1064,6 +991,7 @@ $(document).ready(function() {
     (function( Warlock, undefined ) {
         Warlock.setupStage = function() {
             Warlock.ui = {};
+            Warlock.ui.blockClick = false;
 
             Warlock.ui.stage = new Kinetic.Stage({
                 container: 'game-container',
@@ -1232,7 +1160,7 @@ $(document).ready(function() {
         };
 
         Warlock.socket = io.connect('http://localhost');
-        Warlock.socket.emit('ready', prompt('Some data, please.'));
+        Warlock.socket.emit('ready', 'from client socket');
         Warlock.socket.on('load-game', function(data) {
             Messages.println( 'Connected to server.' );
             Messages.println( 'at: ' + data.loginDate );

@@ -125,8 +125,8 @@ app.use(function(req, res, next) {
 
 // Setup a route for the ready event, and add session data.
 app.io.route('ready', function(req) {
-    var test = require('./data/test.js');
     req.session.save(function() {
+        var test = require('./data/test.js');
         req.io.emit('load-game', {
             loginDate: req.session.loginDate,
             info: req.data,
