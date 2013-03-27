@@ -56,8 +56,89 @@
     Warlock.vegetation.JUNGLE = 2;
     Warlock.vegetation.SWAMP  = 3;
 
-    /* Class for terrain. */
+    
+    /* Class for maps. */
+    Warlock.Map = function(config) {
+        this._initMap(config);
+    };
 
+    Warlock.Map.prototype = {
+        _initMap: function(config) {
+            
+            /* Required for object creation. */
+            this.rows = config.rows;
+            this.cols = config.cols;
+
+            /* Optional. */
+            this.name = config.name || "map";
+
+            /* Values based on other values. */
+            this.type = 'Map';
+            this.height = (this.rows * Warlock.HEX_RAD * 3 / 2) + (Warlock.HEX_RAD / 2);
+            this.width = this.cols * Warlock.HEX_WIDTH;
+
+            /* The hexes that compose the map. */
+            this.hexes = [];
+
+            for( row in config.hexes ) {
+                this.hexes.push([]);
+                for( col in config.hexes[row] ) {
+                    var hex = new Warlock.Hex(config.hexes[row][col])
+                    hex.initializeUI();
+                    this.hexes[row].push(hex);
+                }
+            }
+        },
+
+        calcNeighbors: function(hex) {
+            /* Convenience declarations. */
+            var row = hex.getRow();
+            var col = hex.getCol();
+            var hexes = this.hexes;
+
+            /* Store of currently calculated neighbors. Will be returned. */
+            var nbs = []
+
+            if( col > 0 ) nbs.push( hexes[row][col - 1] );
+            if( row % 2 == 0 ) {
+                if( col < this.cols - 2 ) {
+                    nbs.push( hexes[row][col + 1] );
+                }
+                if( row > 0 ) {
+                    nbs.push( hexes[row - 1][col    ] );
+                    nbs.push( hexes[row - 1][col + 1] );
+                }
+                if( row < this.rows - 1 ) {
+                    nbs.push( hexes[row + 1][col    ] );
+                    nbs.push( hexes[row + 1][col + 1] );
+                }
+            }
+            else {
+                if( col < this.cols - 1 ) {
+                    nbs.push( hexes[row    ][col + 1] );
+                    nbs.push( hexes[row - 1][col    ] );
+                    nbs.push( hexes[row + 1][col    ] );
+                }
+                if( col > 0 ) {
+                    nbs.push( hexes[row - 1][col - 1] );
+                    nbs.push( hexes[row + 1][col - 1] );
+                }
+            }
+
+            return nbs;
+        },
+
+        getNeighbors: function(hex) {
+            if( hex._neighbors == null ) {
+                hex._neighbors = this.calcNeighbors(hex);
+            }
+            return hex._neighbors;
+        },
+    };
+
+
+
+    /* Class for terrain. */
     Warlock.Terrain = function(config) {
         this._initTerrain(config)
     };
@@ -94,11 +175,11 @@
     Warlock.Hex.prototype = {
         _initHex: function(config) {
             this._neighbors = null; // Warlock.Map.neighbors caches results here.
+            this.type = 'Hex';
 
             /* Required values in config. */
             this.required = ['row', 'col', 'terrain'];
             this.attrs = {
-                type: 'Hex',
 
                 /* Required for object creation. */
                 row: config.row,
@@ -162,7 +243,7 @@
          */
         setUnit: function(unit) {
             console.assert( unit == null || this.unit == null );
-            this.unit = unit;
+            this.attrs.unit = unit;
         },
     };
 

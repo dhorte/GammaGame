@@ -306,7 +306,7 @@
 
             /* Post-conditions */
             console.assert( unit.hex == destHex );
-            console.assert( destHex.unit == unit );
+            console.assert( destHex.getUnit() == unit );
         }
     };
 
@@ -319,7 +319,7 @@
         }
 
         console.assert(unit.hex == null);
-        console.assert(hex.unit == null);
+        console.assert(hex.getUnit() == null);
 
         Warlock.units.push(unit);
         unit.hex = hex;
@@ -371,13 +371,13 @@
         /* Add outlines to valid targets. */
         var targetable = Warlock.util.hexDisc(unit.hex, action.getRange());
         Warlock.targetHexes = targetable.filter(function(hex) {
-            if( hex.unit == null ) {
+            if( hex.getUnit() == null ) {
                 return false;
             }
-            else if( action.getKind() == 'attack' && hex.unit.getPlayer() != unit.getPlayer() ) {
+            else if( action.getKind() == 'attack' && hex.getUnit().getPlayer() != unit.getPlayer() ) {
                 return true;
             }
-            else if( action.getKind() == 'heal' && hex.unit.getPlayer() == unit.getPlayer() ) {
+            else if( action.getKind() == 'heal' && hex.getUnit().getPlayer() == unit.getPlayer() ) {
                 return true;
             }
             else {
@@ -520,7 +520,7 @@
 
         switch(Warlock.currentAction.getKind()) {
         case 'attack':
-            Warlock.doAttack(Warlock.selectedUnit, Warlock.currentAction, targetHex.unit );
+            Warlock.doAttack(Warlock.selectedUnit, Warlock.currentAction, targetHex.getUnit() );
             break;
         case 'heal':
             console.log( "Heal action." );
@@ -615,8 +615,8 @@
             }
         });
         this.ui.elem.on('click', function(event) {
-
             if( Warlock.ui.blockClick ) {
+                console.log( 'blockClick' );
                 Warlock.ui.blockClick = false;
                 return;
             }
@@ -628,9 +628,9 @@
                 Warlock.executeAction(hexRef);
             }
 
-            else if( hexRef.unit != null ) {
+            else if( hexRef.getUnit() != null ) {
                 if( event.which == Warlock.LEFT_CLICK ) {
-                    Warlock.selectUnit(hexRef.unit);
+                    Warlock.selectUnit(hexRef.getUnit());
                 }
             }
 
@@ -673,91 +673,6 @@
             console.assert(unit != null);
             hexRef.ui.elem.add(unit.elem)
         };
-    };
-
-})( window.Warlock = window.Warlock || {} );
-
-/*
- * Map stuff.
- */
-(function( Warlock, undefined ) {
-
-    Warlock.Map = function(config) {
-        this._initMap(config);
-    };
-
-    Warlock.Map.prototype = {
-        _initMap: function(config) {
-            
-            /* Required for object creation. */
-            this.rows = config.rows;
-            this.cols = config.cols;
-
-            /* Optional. */
-            this.name = config.name || "map";
-
-            /* Values based on other values. */
-            this.type = 'Map';
-            this.height = (this.rows * Warlock.HEX_RAD * 3 / 2) + (Warlock.HEX_RAD / 2);
-            this.width = this.cols * Warlock.HEX_WIDTH;
-
-            /* The hexes that compose the map. */
-            this.hexes = [];
-
-            for( row in config.hexes ) {
-                this.hexes.push([]);
-                for( col in config.hexes[row] ) {
-                    var hex = new Warlock.Hex(config.hexes[row][col])
-                    hex.initializeUI();
-                    this.hexes[row].push(hex);
-                }
-            }
-        },
-
-        calcNeighbors: function(hex) {
-            /* Convenience declarations. */
-            var row = hex.getRow();
-            var col = hex.getCol();
-            var hexes = this.hexes;
-
-            /* Store of currently calculated neighbors. Will be returned. */
-            var nbs = []
-
-            if( col > 0 ) nbs.push( hexes[row][col - 1] );
-            if( row % 2 == 0 ) {
-                if( col < this.cols - 2 ) {
-                    nbs.push( hexes[row][col + 1] );
-                }
-                if( row > 0 ) {
-                    nbs.push( hexes[row - 1][col    ] );
-                    nbs.push( hexes[row - 1][col + 1] );
-                }
-                if( row < this.rows - 1 ) {
-                    nbs.push( hexes[row + 1][col    ] );
-                    nbs.push( hexes[row + 1][col + 1] );
-                }
-            }
-            else {
-                if( col < this.cols - 1 ) {
-                    nbs.push( hexes[row    ][col + 1] );
-                    nbs.push( hexes[row - 1][col    ] );
-                    nbs.push( hexes[row + 1][col    ] );
-                }
-                if( col > 0 ) {
-                    nbs.push( hexes[row - 1][col - 1] );
-                    nbs.push( hexes[row + 1][col - 1] );
-                }
-            }
-
-            return nbs;
-        },
-
-        getNeighbors: function(hex) {
-            if( hex._neighbors == null ) {
-                hex._neighbors = this.calcNeighbors(hex);
-            }
-            return hex._neighbors;
-        },
     };
 
 })( window.Warlock = window.Warlock || {} );
@@ -933,7 +848,7 @@
         },
 
         moveCost: function(hex) {
-            if( hex.unit != null && hex.unit.getPlayer() != this.getPlayer() ) {
+            if( hex.getUnit() != null && hex.getUnit().getPlayer() != this.getPlayer() ) {
                 return Number.MAX_VALUE;
             }
             else if( this.flying ) {
@@ -971,10 +886,10 @@
          * @param hex Location of this unit after calling the function.
          */
         moveToHex: function(hex) {
-            this.hex.unit = null;
+            this.hex.setUnit(null);
             this.hex = hex;
-            hex.unit = this;
-            this.elem.moveTo(hex.elem);
+            hex.setUnit(this);
+            this.elem.moveTo(hex.ui.elem);
         },
     };
 
