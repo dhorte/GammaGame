@@ -300,4 +300,122 @@
     
     Warlock.Global.addGetters(Warlock.Action, ['name', 'kind', 'range', 'damageType', 'powerMod', 'effects']);
 
+
+    Warlock.Unit = function(config) {
+        this._initUnit(config);
+    };
+
+    Warlock.Unit.prototype = {
+        _initUnit: function(config) {
+            var unitRef = this;
+
+            /* Dictionaries that we'll need to fill. */
+            this.base = {};
+            this.actions = [];
+
+            /* Required for object creation. */
+            this.name = config.name;
+            this.player_id = config.player_id;
+            this.power = config.power;
+            this.powerKind = config.powerKind;
+            this.base.hp = config.hp;
+            this.base.move = config.move;
+
+            /* Optional values with defaults. */
+            this.type = 'Unit';
+            this.powerMod = config.powerMod || 0;
+            this.damageMod = $.extend(Warlock.damageDict(), config.damageMod);
+            this.resistance = $.extend(Warlock.damageDict(), config.resistance);
+            this.flying = config.flying || false;
+            this.basicAttack = null;
+
+            /* Create a basic attack for this unit, based on its power. */
+            if( config.power > 0 && !config.noAttack ) {
+                this.basicAttack = new Warlock.Action({
+                    name: 'basic attack',
+                    kind: 'attack',
+                    range: (function() {
+                        if( config.powerKind == 'melee' ) return 1;
+                        else return 2;
+                    })(),
+                    damageType: unitRef.powerKind,
+                });
+                this.actions.push(this.basicAttack);
+            }
+
+            /* Add additional actions from the config file. */
+            if( config.actions !== undefined ) {
+                config.actions.forEach(function(actionConfig) {
+                    unitRef.actions.push(new Warlock.Action(actionConfig));
+                });
+            }
+
+            /* Copy the base values into current, which is where they will be updated. */
+            this.current = $.extend({}, this.base);
+        },
+
+        getPlayer: function() {
+            return Warlock.players[this.player_id];
+        },
+
+        getMove: function() {
+            return this.current.move;
+        },
+
+        setMove: function(amount) {
+            console.assert(amount >= 0);
+            console.assert(amount <= this.base.move);
+            this.current.move = amount;
+
+            /* Create a visual indicator when a unit has no more movement points. */
+            if( this.current.move == 0 ) {
+                console.log( "TODO: Show a visual indicator when movement is exhausted." )
+            }
+        },
+
+        moveCost: function(hex) {
+            if( hex.getUnit() != null && hex.getUnit().getPlayer() != this.getPlayer() ) {
+                return Number.MAX_VALUE;
+            }
+            else if( this.flying ) {
+                return 1;
+            }
+            else if( this.marine ) {
+                if( hex.terrain.height == Warlock.WATER ) return 1;
+                else return Number.MAX_VALUE;
+            }
+            else {
+                var terrain = hex.getTerrain();
+                /* Impassable terrain. */
+                if( terrain.height == Warlock.elevation.MOUNTAINS ||
+                    terrain.height == Warlock.elevation.WATER ) return Number.MAX_VALUE;
+
+                /* Vegetation. */
+                else if( terrain.veg == Warlock.vegetation.FOREST ) return 2;
+                else if( terrain.veg == Warlock.vegetation.JUNGLE ) return 2;
+                else if( terrain.veg == Warlock.vegetation.SWAMP ) return 4;
+
+                /* Raw terrain. */
+                else if( terrain.height == Warlock.elevation.PLAINS ) return 1;
+                else if( terrain.height == Warlock.elevation.HILLS ) return 2;
+                else throw "unknown terrain";
+            }
+        },
+
+        /**
+         * Move this unit to the specified hex.
+         * This function tests if the unit can legally be positioned on that hex, which
+         * could be prevented by terrain conditions, enemy units, etc. However, it does
+         * not check or update movement points. So, this can be used by various effects
+         * to move the unit without worrying about affecting the movement points of the
+         * unit.
+         * @param hex Location of this unit after calling the function.
+         */
+        moveToHex: function(hex) {
+            this.hex.setUnit(null);
+            this.hex = hex;
+            hex.setUnit(this);
+        },
+    };
+
 })(typeof exports === 'undefined' ? this['Warlock'] = {} : exports);
