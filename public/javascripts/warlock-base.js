@@ -2,9 +2,11 @@
     Warlock.Global = {
         _addGetter: function(constructor, attr) {
             var method = 'get' + attr.charAt(0).toUpperCase() + attr.slice(1);
-            constructor.prototype[method] = function() {
-                return this.attrs[attr];
-            };
+            if( constructor.prototype[method] === undefined ) {
+                constructor.prototype[method] = function() {
+                    return this.attrs[attr];
+                };
+            }
         },
 
         addGetters: function(constructor, arr) {
@@ -15,19 +17,23 @@
             }
         },
 
+        _addSetter: function(constructor, attr) {
+            var method = 'set' + attr.charAt(0).toUpperCase() + attr.slice(1);
+            constructor.prototype[method] = function(arg) {
+                if( arg !== undefined ) {
+                    this.attrs[attr] = arg;
+                }
+                else {
+                    throw 'tried to set attr to undefined: ' + attr;
+                }
+            };
+        },
+
         addSetters: function(constructor, arr) {
             var len = arr.length;
             for(var n = 0; n < len; n++) {
                 var attr = arr[n];
-                var method = 'set' + attr.charAt(0).toUpperCase() + attr.slice(1);
-                constructor.prototype[method] = function(arg) {
-                    if( arg !== undefined ) {
-                        this.attrs[attr] = arg;
-                    }
-                    else {
-                        throw 'tried to set attr to undefined: ' + attr;
-                    }
-                };
+                this._addSetter(constructor, attr);
             }
         }
     };
@@ -55,6 +61,24 @@
     Warlock.vegetation.FOREST = 1;
     Warlock.vegetation.JUNGLE = 2;
     Warlock.vegetation.SWAMP  = 3;
+
+
+    /* Class for players. */
+    Warlock.Player = function(config) {
+        this._initPlayer(config);
+    };
+
+    Warlock.Player.prototype = {
+        _initPlayer: function(config) {
+
+            /* Required for object creation. */
+            this.id = config.id;
+            this.color = config.color;
+
+            /* Calculated from other values. */
+            this.type = 'Player';
+        },
+    };
 
     
     /* Class for maps. */
@@ -192,7 +216,6 @@
                 hashKey: 'hex' + config.row + ',' + config.col,
             }
 
-            Warlock.Global.addGetters(Warlock.Hex, ['row', 'col', 'unit', 'diag', 'hashKey', 'terrain']);
         },
 
         /**
@@ -246,6 +269,35 @@
             this.attrs.unit = unit;
         },
     };
+    
+    Warlock.Global.addGetters(Warlock.Hex, ['row', 'col', 'unit', 'diag', 'hashKey', 'terrain']);
 
+
+    /*
+     * Actions
+     * Actions are intended to be immutable after their creation. Any mods to them should
+     * be applied to the unit who has the action.
+     */
+    Warlock.Action = function(config) {
+        this._initAction(config);
+    };
+
+    Warlock.Action.prototype = {
+        _initAction: function(config) {
+            this.attrs = {
+                /* Required for object creation. */
+                name: config.name,      // arbitrary identifier
+                kind: config.kind,      // 'attack' or 'heal'
+                range: config.range,    // 0 = self, 1 = adjacent, etc.
+                damageType: config.damageType,
+                
+                /* Optional. */
+                powerMod: config.powerMod || 0.0,
+                effects: config.effects || [],
+            }
+        },
+    };
+    
+    Warlock.Global.addGetters(Warlock.Action, ['name', 'kind', 'range', 'damageType', 'powerMod', 'effects']);
 
 })(typeof exports === 'undefined' ? this['Warlock'] = {} : exports);

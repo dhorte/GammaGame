@@ -545,11 +545,6 @@
  */
 (function( Warlock, undefined ) {
 
-    // Warlock.Hex = function(config) {
-    //     this._initHex(config);
-    //     this.setTerrain(new Warlock.Terrain(config.terrain));
-    // };
-
     Warlock.Hex.prototype.initializeUI = function() {
         var hexRef = this;
         var row = this.getRow();
@@ -679,76 +674,6 @@
 
 
 
-/*
- * Players
- */
-(function( Warlock, undefined ) {
-
-    Warlock.Player = function(config) {
-        this._initPlayer(config);
-    };
-
-    Warlock.Player.prototype = {
-        _initPlayer: function(config) {
-
-            /* Required for object creation. */
-            this.id = config.id;
-            this.color = config.color;
-
-            /* Calculated from other values. */
-            this.type = 'Player';
-        },
-    };
-
-})( window.Warlock = window.Warlock || {} );
-
-/*
- * Actions
- * Actions are intended to be immutable after their creation. Any mods to them should
- * be applied to the unit who has the action.
- */
-(function( Warlock, undefined ) {
-    
-    Warlock.Action = function(config) {
-        this._initAction(config);
-    };
-
-    Warlock.Action.prototype = {
-        _initAction: function(config) {
-            this.attrs = {
-                /* Required for object creation. */
-                name: config.name,      // arbitrary identifier
-                kind: config.kind,      // 'attack' or 'heal'
-                range: config.range,    // 0 = self, 1 = adjacent, etc.
-                damageType: config.damageType,
-                
-                /* Optional. */
-                powerMod: config.powerMod || 0.0,
-                effects: config.effects || [],
-            }
-        },
-
-        getName: function() {
-            return this.attrs.name;
-        },
-        getKind: function() {
-            return this.attrs.kind;
-        },
-        getRange: function() {
-            return this.attrs.range;
-        },
-        getDamageType: function() {
-            return this.attrs.damageType;
-        },
-        getPowerMod: function() {
-            return this.attrs.powerMod
-        },
-        getEffects: function() {
-            return this.attrs.effects.slice(0);
-        },
-    };
-
-})( window.Warlock = window.Warlock || {} );
 
 /*
  * Units.
