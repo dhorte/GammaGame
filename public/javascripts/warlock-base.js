@@ -128,6 +128,98 @@
         getCurrentPlayer: function() {
             return this.attrs.players[this.attrs.currentPlayerIndex];
         },
+
+        /**
+         * unitMovement(unit)
+         * @param unit Warlock.Unit
+         * @return {
+         *     hexes: Array(Warlock.Hex) hexes that the unit can move to
+         *     remain: Dict(Warlock.Hex -> Number) movement remaining after moving to hex
+         * }
+         */
+        unitMovement: function(unit) {
+            console.assert($.inArray(unit, this.getUnits()) >= 0);
+
+            var done = [];
+            var queue = [unit.hex];
+            var remain = {};
+            var todo = {};
+            todo[unit.getMove()] = [unit.hex];  // Start with the current hex.
+            var currentlyHandling = unit.getMove();
+
+            var movable = [];
+
+            /* 
+             * Movement remaining is guaranteed to decrease at each step.
+             * If we always work on the hexes that have the highest remaining movement,
+             * then we will never repeat any hexes, and each hex will get the maximum
+             * value of remaining movement the first time it is visited.
+             */
+            var nextRange = function() {
+                console.assert( typeof currentlyHandling === "number" );
+
+                var max = -1;
+                for( key in todo ) {
+                    var value = parseFloat(key);
+                    if( value < currentlyHandling && value > max ) {
+                        max = value;
+                    }
+                }
+
+                currentlyHandling = max;
+            };
+
+            var addHex = function(hex, remaining) {
+                if( todo[remaining] === undefined ) {
+                    todo[remaining] = [];
+                }
+                todo[remaining].push(hex);
+                queue.push(hex);
+            };
+
+            while( currentlyHandling >= 0 ) {
+                for( i in todo[currentlyHandling] ) {
+                    var hex = todo[currentlyHandling][i];
+                    done.push(hex);
+                    remain[hex.getHashKey()] = currentlyHandling;
+
+                    // Find any neighbors that haven't been done, and get
+                    // ready to do them.
+                    var nbs = this.getMap().getNeighbors(hex);
+                    for( n in nbs ) {
+                        if( $.inArray(nbs[n], queue) == -1 ) {
+                            var nbCost = unit.moveCost(nbs[n]);
+                            if( nbCost <= currentlyHandling ) {
+                                addHex(nbs[n], currentlyHandling - nbCost);
+                            }
+                        }
+                    }
+                }
+
+                nextRange();
+            };
+
+            return {
+                hexes: done,
+                remain: remain
+            };
+
+        },
+
+        /**
+         * getPlayers()
+         * @return Array of Warlock.Player
+         */
+
+        /**
+         * getUnits()
+         * @return Array of Warlock.Unit
+         */
+
+        /**
+         * getMap()
+         * @return Warlock.Map
+         */
     };
 
     Warlock.Global.addGetters(Warlock.Game, ['players', 'units', 'map']);

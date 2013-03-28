@@ -37,19 +37,7 @@
 
 
     /* GLOBAL VARIABLES. */
-
     Warlock.game = null;
-
-    // Warlock.map = null;
-    // Warlock.currentPlayer = null;  // player whose turn it currently is
-    // Warlock.players = {};          // list of all players in the game
-    // Warlock.units = [];            // list of all units for all players
-    // Warlock.mapHeight = 0;
-    // Warlock.mapWidth = 0;
-    // Warlock.selectedUnit = null;   // The currently selected unit.
-    // Warlock.moveHexes = [];        // The hexes that the selected unit can move to.
-    // Warlock.moveRemain = {};       // For each hex in moveHexes, cost of moving there.
-    // Warlock.targetHexes = [];      // The hexes that the current unit action can target.
 
 })( window.Warlock = window.Warlock || {} );
 
@@ -120,7 +108,7 @@
             this.moveHexes = [];        // The hexes that the selected unit can move to.
             this.moveRemain = {};       // Cost of moving to this hex from current.
             this.targetHexes = [];      // Hexes that the current unit action can target.
-            this.blockClick = false;
+            // this.blockClick = false;
             this.actionButtons = [];
 
             this._initElems();          // All of the KineticJS objects used for rendering
@@ -163,22 +151,24 @@
             // the hexes, terrains, units, cities, etc.
             // All nodes on the map layer are added when the map and units are loaded.
             this.elems.mapLayer = new Kinetic.Layer();
-            this.elems.mapLayer.on('dragstart', function(event) {
-                Warlock.dragDist = 0;
-                Warlock.dragX = event.x;
-                Warlock.dragY = event.y;
-            });
-            this.elems.mapLayer.on('dragmove', function(event) {
-                var dx = event.x - Warlock.dragX;
-                var dy = event.y - Warlock.dragY;
-                Warlock.dragDist += Math.sqrt( dx * dx + dy * dy );
-                Warlock.dragX = event.x;
-                Warlock.dragY = event.y;
 
-                if( dragDist > 2 ) {
-                    Warlock.blockClick = true;
-                }
-            });
+            // These should not be needed.
+            // this.elems.mapLayer.on('dragstart', function(event) {
+            //     this.dragDist = 0;
+            //     this.dragX = event.x;
+            //     this.dragY = event.y;
+            // });
+            // this.elems.mapLayer.on('dragmove', function(event) {
+            //     var dx = event.x - this.dragX;
+            //     var dy = event.y - this.dragY;
+            //     this.dragDist += Math.sqrt( dx * dx + dy * dy );
+            //     this.dragX = event.x;
+            //     this.dragY = event.y;
+
+            //     if( this.dragDist > 2 ) {
+            //         Warlock.blockClick = true;
+            //     }
+            // });
 
 
             // INFO LAYER
@@ -354,12 +344,14 @@
             });
         },
 
-        unselectUnit: function() {
-            // Clear move outlines.
+        clearMoveOutlines: function() {
             for( i in this.moveHexes ) {
                 this.moveHexes[i].ui.outline(false);
             }
+        },
 
+        unselectUnit: function() {
+            this.clearMoveOutlines();
             this.selectedUnit = null;
             this.moveHexes = [];
             this.moveRemain = {};
@@ -374,7 +366,7 @@
 
             // Calculate possible movement.
             var hex = unit.hex;
-            var movement = Warlock.calculateMovement(unit, hex);
+            var movement = Warlock.game.unitMovement(unit);
             this.moveHexes = movement.hexes;
             this.moveRemain = movement.remain;
 
@@ -389,8 +381,12 @@
                 });
             }
 
-            Warlock.updatePrimaryUnitStats(unit); // Display the unit's stats.
-            this.setActionButtons(unit);    // Display the unit's actions.
+            // Display the unit's stats.
+            var text = unit.name + '\nhp: ' + Math.round(unit.current.hp) + '/' + unit.base.hp + '\nmove: ' + unit.getMove() + '/' + unit.base.move;
+            this.elems.unitInfoText.setText(text);
+
+            // Display the unit's actions.
+            this.setActionButtons(unit);
         },
 
         moveSelectedUnit: function(destHex) {
@@ -413,6 +409,27 @@
                 console.assert( destHex.getUnit() == unit );
             }
         },
+
+        updateSecondaryUnitStats: function(unit) {
+            console.log( "TODO" );
+        },
+
+        showTargetOutlines: function() {
+            this.targetHexes.forEach(function(hex) {
+                hex.ui.outline({
+                    color: 'white',
+                    opacity: 1.0
+                });
+            });
+        },
+
+        clearTargetOutlines: function() {
+            this.targetHexes.forEach(function(hex) {
+                hex.keepHighlight = false;
+                hex.ui.outline(false);
+            });
+        },
+
 
     };
 
@@ -443,87 +460,6 @@
         };
     }
 
-    Warlock.calculateMovement = function(unit) {
-        var done = [];
-        var queue = [unit.hex];
-        var remain = {};
-        var todo = {};
-        todo[unit.getMove()] = [unit.hex];  // Start with the current hex.
-        var currentlyHandling = unit.getMove();
-
-        var movable = [];
-
-        /* 
-         * Movement remaining is guaranteed to decrease at each step.
-         * If we always work on the hexes that have the highest remaining movement,
-         * then we will never repeat any hexes, and each hex will get the maximum value
-         * of remaining movement the first time it is visited.
-         */
-        var nextRange = function() {
-            console.assert( typeof currentlyHandling === "number" );
-
-            var max = -1;
-            for( key in todo ) {
-                var value = parseFloat(key);
-                if( value < currentlyHandling && value > max ) {
-                    max = value;
-                }
-            }
-
-            currentlyHandling = max;
-        };
-
-        var addHex = function(hex, remaining) {
-            if( todo[remaining] === undefined ) {
-                todo[remaining] = [];
-            }
-            todo[remaining].push(hex);
-            queue.push(hex);
-        };
-
-        while( currentlyHandling >= 0 ) {
-            for( i in todo[currentlyHandling] ) {
-                var hex = todo[currentlyHandling][i];
-                done.push(hex);
-                remain[hex.getHashKey()] = currentlyHandling;
-
-                /* Find any neighbors that haven't been done, and get ready to do them. */
-                var nbs = Warlock.game.getMap().getNeighbors(hex);
-                for( n in nbs ) {
-                    if( $.inArray(nbs[n], queue) == -1 ) {
-                        var nbCost = unit.moveCost(nbs[n]);
-                        if( nbCost <= currentlyHandling ) {
-                            addHex(nbs[n], currentlyHandling - nbCost);
-                        }
-                    }
-                }
-            }
-
-            nextRange();
-        };
-
-        return {
-            hexes: done,
-            remain: remain
-        };
-    };
-
-
-    Warlock.showTargetOutlines = function() {
-        Warlock.targetHexes.forEach(function(hex) {
-            hex.ui.outline({
-                color: 'white',
-                opacity: 1.0
-            });
-        });
-    };
-
-    Warlock.clearTargetOutlines = function() {
-        Warlock.targetHexes.forEach(function(hex) {
-            hex.keepHighlight = false;
-            hex.ui.outline(false);
-        });
-    }
 
     Warlock.startAction = function(unit, action) {
         if( unit.getMove() <= 0 ) {
@@ -531,11 +467,11 @@
             return;
         }
 
-        Warlock.clearMoveOutlines();
+        Warlock.ui.clearMoveOutlines();
 
         /* Add outlines to valid targets. */
         var targetable = Warlock.util.hexDisc(unit.hex, action.getRange());
-        Warlock.targetHexes = targetable.filter(function(hex) {
+        Warlock.ui.targetHexes = targetable.filter(function(hex) {
             if( hex.getUnit() == null ) {
                 return false;
             }
@@ -554,9 +490,9 @@
         if( action.getKind() == 'attack' ) color = 'red'
         else if( action.getKind() == 'heal' ) color = 'green'
 
-        Warlock.showTargetOutlines(color);
-        if( Warlock.targetHexes.length > 0 ) {
-            console.assert( Warlock.selectedUnit == unit );
+        Warlock.ui.showTargetOutlines(color);
+        if( Warlock.ui.targetHexes.length > 0 ) {
+            console.assert( Warlock.ui.selectedUnit == unit );
             Warlock.currentAction = action;
             Warlock.ui.redraw();
         }
@@ -572,15 +508,6 @@
         if( unit.current.hp <= 0 ) {
             Messages.println(unit.name + ' has died.');
         };
-    };
-
-    Warlock.updatePrimaryUnitStats = function(unit) {
-        var text = unit.name + '\nhp: ' + Math.round(unit.current.hp) + '/' + unit.base.hp + '\nmove: ' + unit.getMove() + '/' + unit.base.move;
-        Warlock.ui.elems.unitInfoText.setText(text);
-    };
-
-    Warlock.updateSecondaryUnitStats = function(unit) {
-        console.log( "TODO" );
     };
 
     Warlock.doAttack = function(attacker, action, defender) {
@@ -665,12 +592,8 @@
         Warlock.applyDamage(attacker, defenderDamage, defender.name);
         attacker.setMove(0); // Attacking uses all of a units movement points.
 
-        Warlock.updatePrimaryUnitStats(attacker);
-        Warlock.updateSecondaryUnitStats(defender);
-
-        // for( key in damage ) {
-        //     console.log( key + ' ' + damage[key] );
-        // };
+        Warlock.ui.selectUnit(attacker);
+        Warlock.ui.updateSecondaryUnitStats(defender);
     };
 
     Warlock.executeAction = function(targetHex) {
@@ -681,11 +604,11 @@
             return;
         }
 
-        console.assert( Warlock.selectedUnit != null );
+        console.assert( Warlock.ui.selectedUnit != null );
 
         switch(Warlock.currentAction.getKind()) {
         case 'attack':
-            Warlock.doAttack(Warlock.selectedUnit, Warlock.currentAction, targetHex.getUnit() );
+            Warlock.doAttack(Warlock.ui.selectedUnit, Warlock.currentAction, targetHex.getUnit() );
             break;
         case 'heal':
             console.log( "Heal action." );
@@ -696,8 +619,8 @@
         }
 
         Warlock.currentAction = null;
-        Warlock.clearTargetOutlines();
-        Warlock.selectUnit(Warlock.selectedUnit);
+        Warlock.ui.clearTargetOutlines();
+        Warlock.ui.selectUnit(Warlock.ui.selectedUnit);
         Warlock.ui.redraw();
     };
 
@@ -775,16 +698,17 @@
             }
         });
         this.ui.elem.on('click', function(event) {
-            if( Warlock.ui.blockClick ) {
-                console.log( 'blockClick' );
-                Warlock.ui.blockClick = false;
-                return;
-            }
+            // if( Warlock.ui.blockClick ) {
+            //     console.log( 'blockClick' );
+            //     Warlock.ui.blockClick = false;
+            //     return;
+            // }
 
             /* Execute action on this target. */
-            else if (event.which == Warlock.RIGHT_CLICK &&
+            if (event.which == Warlock.RIGHT_CLICK &&
                      $.inArray(hexRef, Warlock.ui.targetHexes) >= 0
             ) {
+                console.log('hello');
                 Warlock.executeAction(hexRef);
             }
 
