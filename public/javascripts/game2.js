@@ -354,6 +354,65 @@
             });
         },
 
+        unselectUnit: function() {
+            // Clear move outlines.
+            for( i in this.moveHexes ) {
+                this.moveHexes[i].ui.outline(false);
+            }
+
+            this.selectedUnit = null;
+            this.moveHexes = [];
+            this.moveRemain = {};
+            this.clearUnitDetails();
+        },
+
+        selectUnit: function(unit) {
+            console.assert(unit !== undefined);
+
+            this.unselectUnit();
+            this.selectedUnit = unit;
+
+            // Calculate possible movement.
+            var hex = unit.hex;
+            var movement = Warlock.calculateMovement(unit, hex);
+            this.moveHexes = movement.hexes;
+            this.moveRemain = movement.remain;
+
+            // Display possible movement.
+            for( i in this.moveHexes ) {
+                var hex = this.moveHexes[i];
+                var finalMove = this.moveRemain[hex.getHashKey()] <= 0;
+                var activeUnit = this.selectedUnit.getPlayer() == this.game.getCurrentPlayer();
+                hex.ui.outline({
+                    color: finalMove ? 'red' : 'magenta',
+                    opacity: activeUnit ? 1.0 : 0.6
+                });
+            }
+
+            Warlock.updatePrimaryUnitStats(unit); // Display the unit's stats.
+            this.setActionButtons(unit);    // Display the unit's actions.
+        },
+
+        moveSelectedUnit: function(destHex) {
+            console.assert( destHex !== undefined );
+
+            var unit = this.selectedUnit;
+            var canMove =
+                unit != null &&
+                unit.getPlayer() == Warlock.game.getCurrentPlayer() &&
+                $.inArray(destHex, this.moveHexes) >= 0;
+
+            if( canMove ) {
+                unit.setMove(this.moveRemain[destHex.getHashKey()]);
+                unit.moveToHex(destHex);
+                unit.ui.elem.moveTo(destHex.ui.elem);
+                this.selectUnit(unit);
+
+                /* Post-conditions */
+                console.assert( unit.hex == destHex );
+                console.assert( destHex.getUnit() == unit );
+            }
+        },
 
     };
 
@@ -449,75 +508,6 @@
         };
     };
 
-    Warlock.unselectUnit = function() {
-        Warlock.selectedUnit = null;
-        Warlock.clearMoveOutlines();
-        Warlock.moveHexes = [];
-        Warlock.moveRemain = {};
-        Warlock.ui.clearUnitDetails();
-    };
-
-    Warlock.selectUnit = function(unit) {
-        if( Warlock.selectedUnit != null ) {
-            Warlock.unselectUnit();
-        }
-        Warlock.selectedUnit = unit;
-
-        /* Display the selected unit's stats. */
-        Warlock.updatePrimaryUnitStats(unit);
-
-        /* Display the selected unit's movement potential. */
-        var hex = unit.hex;
-        var movement = Warlock.calculateMovement(unit, hex);
-        Warlock.moveHexes = movement.hexes;
-        Warlock.moveRemain = movement.remain;
-        Warlock.showMoveOutlines();
-
-        /* Display the selected unit's actions. */
-        Warlock.ui.setActionButtons(unit);
-    };
-
-    Warlock.moveSelectedUnit = function(destHex) {
-
-        /* Pre-conditions */
-        console.assert( destHex !== undefined );
-        console.assert( destHex.type == 'Hex' );
-        console.assert( Warlock.game.getCurrentPlayer() != null );
-
-        /* Convenience declarations */
-        var unit = Warlock.selectedUnit;
-
-        if( unit != null && 
-            unit.getPlayer() == Warlock.game.getCurrentPlayer() &&
-            $.inArray(destHex, Warlock.moveHexes) >= 0
-          ) {
-            unit.setMove(Warlock.moveRemain[destHex.getHashKey()]);
-            unit.moveToHex(destHex);
-            unit.ui.elem.moveTo(destHex.ui.elem);
-            Warlock.selectUnit(unit);
-
-            /* Post-conditions */
-            console.assert( unit.hex == destHex );
-            console.assert( destHex.getUnit() == unit );
-        }
-    };
-
-    Warlock.showMoveOutlines = function() {
-        for( i in Warlock.moveHexes ) {
-            var finalMove = Warlock.moveRemain[Warlock.moveHexes[i].getHashKey()] <= 0;
-            var activeUnit = Warlock.selectedUnit.getPlayer() == Warlock.game.getCurrentPlayer();
-            Warlock.moveHexes[i].ui.outline({
-                color: finalMove ? 'red' : 'magenta',
-                opacity: activeUnit ? 1.0 : 0.6
-            });
-        }
-    };
-
-    Warlock.clearMoveOutlines = function() {
-        for (i in Warlock.moveHexes) {
-            Warlock.moveHexes[i].ui.outline(false);
-        }
-    };
 
     Warlock.showTargetOutlines = function() {
         Warlock.targetHexes.forEach(function(hex) {
@@ -793,24 +783,24 @@
 
             /* Execute action on this target. */
             else if (event.which == Warlock.RIGHT_CLICK &&
-                     $.inArray(hexRef, Warlock.targetHexes) >= 0
+                     $.inArray(hexRef, Warlock.ui.targetHexes) >= 0
             ) {
                 Warlock.executeAction(hexRef);
             }
 
             else if( hexRef.getUnit() != null ) {
                 if( event.which == Warlock.LEFT_CLICK ) {
-                    Warlock.selectUnit(hexRef.getUnit());
+                    Warlock.ui.selectUnit(hexRef.getUnit());
                 }
             }
 
             else {
                 if( event.which == Warlock.LEFT_CLICK ) {
-                    Warlock.unselectUnit();
+                    Warlock.ui.unselectUnit();
                 }
 
                 else if( event.which == Warlock.RIGHT_CLICK ) {
-                    Warlock.moveSelectedUnit(hexRef);
+                    Warlock.ui.moveSelectedUnit(hexRef);
                 }
             }
 
