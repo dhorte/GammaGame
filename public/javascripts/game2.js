@@ -411,7 +411,7 @@
         },
 
         updateSecondaryUnitStats: function(unit) {
-            console.log( "TODO" );
+            console.log( "TODO: display secondary unit stats" );
         },
 
         showTargetOutlines: function() {
@@ -444,22 +444,6 @@
  * Game management functions.
  */
 (function( Warlock, undefined ) {
-
-    /* 
-     * Create a new, empty damage dictionary.
-     * Useful for calculating damage, storing damage modifiers, etc.
-     */
-    Warlock.damageDict = function() {
-        return {
-            melee: 0,
-            range: 0,
-            life: 0,
-            death: 0,
-            spirit: 0,
-            elemental: 0
-        };
-    }
-
 
     Warlock.startAction = function(unit, action) {
         if( unit.getMove() <= 0 ) {
@@ -511,73 +495,11 @@
     };
 
     Warlock.doAttack = function(attacker, action, defender) {
-
-        var attackerDamage = (function() {
-            var power = attacker.power;
-
-            /* Apply all power mods. */
-            power *= (1.0 + action.getPowerMod());
-            power *= (1.0 + attacker.powerMod);
-
-            /* Calculate damage for all types. */
-            var damage = Warlock.damageDict();
-            for( key in attacker.damageMod ) {
-                damage[key] = power * attacker.damageMod[key];
-            };
-
-            /* Add in the base damage. */
-            damage[action.getDamageType()] += power;
-
-            /* Apply damage resistance. */
-            for( key in damage ) {
-                damage[key] -= (damage[key] * defender.resistance[key]);
-            };
-
-            var totalDamage = 0;
-            for( key in damage ) {
-                totalDamage += damage[key];
-                console.log( key + ' -> ' + damage[key] );
-            };
-
-            return totalDamage;
-        })();
-
-        var defenderDamage = (function() {
-            if( defender.basicAttack == null ||
-                action.getDamageType() != 'melee'
-            ) {
-                return 0;
-            }
-
-            /* Defender always responds with basic attack. */
-            var defence = defender.basicAttack;
-            var power = defender.power;
-
-            /* Apply all power mods. */
-            power *= (1.0 + defence.getPowerMod());
-            power *= (1.0 + defender.powerMod);
-
-            /* Calculate damage for all types. */
-            var damage = Warlock.damageDict();
-            for( key in defender.damageMod ) {
-                damage[key] = power * defender.damageMod[key];
-            };
-
-            /* Add in the base damage. */
-            damage[defence.getDamageType()] += power;
-
-            /* Apply damage resistance. */
-            for( key in damage ) {
-                damage[key] -= (damage[key] * attacker.resistance[key]);
-            };
-
-            var totalDamage = 0;
-            for( key in damage ) {
-                totalDamage += damage[key];
-            };
-
-            return totalDamage;
-        })();
+        var attackerDamage = Warlock.game.calcDamage(attacker, defender, action, true);
+        var defenderDamage = 0;
+        if( defender.basicAttack != null && action.getDamageType() == 'melee' ) {
+            defenderDamage = Warlock.game.calcDamage(defender, attacker, defender.basicAttack, false);
+        }
 
         Messages.println(
             sprintf('%(att)s %(attDam).1f -> VS <- %(defDam).1f %(def)s', {
@@ -708,7 +630,6 @@
             if (event.which == Warlock.RIGHT_CLICK &&
                      $.inArray(hexRef, Warlock.ui.targetHexes) >= 0
             ) {
-                console.log('hello');
                 Warlock.executeAction(hexRef);
             }
 

@@ -35,7 +35,25 @@
                 var attr = arr[n];
                 this._addSetter(constructor, attr);
             }
+        },
+
+        /* 
+         * Create a new, empty damage dictionary.
+         * Useful for calculating damage, storing damage modifiers, etc.
+         */
+        damageDict: function() {
+            return {
+                melee: 0,
+                range: 0,
+                life: 0,
+                death: 0,
+                spirit: 0,
+                elemental: 0
+            };
         }
+
+
+
     };
     
 
@@ -204,6 +222,44 @@
                 remain: remain
             };
 
+        },
+
+        /**
+         * calcDamage(source, target, action, isAttacking)
+         * @returns {
+         *   total: total damage to apply
+         *   types: Warlock.damageDict; damage by type
+         *   global_defense: Dict( memo about each type of defense applied to all types )
+         *   defense: Dict( memo about defense applied to each damage type )
+         */
+        calcDamage: function(source, target, action, isAttacking) {
+            var power = source.power;
+
+            /* Apply all power mods. */
+            power += power * action.getPowerMod();
+            power += power * source.powerMod;
+
+            /* Calculate damage for all types. */
+            var damage = Warlock.Global.damageDict();
+            for( key in source.damageMod ) {
+                damage[key] = power * source.damageMod[key];
+            };
+
+            /* Add in the base damage. */
+            damage[action.getDamageType()] += power;
+
+            /* Apply damage resistance. */
+            for( key in damage ) {
+                damage[key] -= (damage[key] * target.resistance[key]);
+            };
+
+            var totalDamage = 0;
+            for( key in damage ) {
+                totalDamage += damage[key];
+                console.log( key + ' -> ' + damage[key] );
+            };
+
+            return totalDamage;
         },
 
         /**
@@ -483,8 +539,8 @@
             this.hex = null;
             this.type = 'Unit';
             this.powerMod = config.powerMod || 0;
-            this.damageMod = $.extend(Warlock.damageDict(), config.damageMod);
-            this.resistance = $.extend(Warlock.damageDict(), config.resistance);
+            this.damageMod = $.extend(Warlock.Global.damageDict(), config.damageMod);
+            this.resistance = $.extend(Warlock.Global.damageDict(), config.resistance);
             this.flying = config.flying || false;
             this.basicAttack = null;
 
