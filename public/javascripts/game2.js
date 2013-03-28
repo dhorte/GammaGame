@@ -38,17 +38,18 @@
 
     /* GLOBAL VARIABLES. */
 
-    Warlock.map = null;
+    Warlock.game = null;
 
-    Warlock.currentPlayer = null;  // player whose turn it currently is
-    Warlock.players = {};          // list of all players in the game
-    Warlock.units = [];            // list of all units for all players
-    Warlock.mapHeight = 0;
-    Warlock.mapWidth = 0;
-    Warlock.selectedUnit = null;   // The currently selected unit.
-    Warlock.moveHexes = [];        // The hexes that the selected unit can move to.
-    Warlock.moveRemain = {};       // For each hex in moveHexes, cost of moving there.
-    Warlock.targetHexes = [];      // The hexes that the current unit action can target.
+    // Warlock.map = null;
+    // Warlock.currentPlayer = null;  // player whose turn it currently is
+    // Warlock.players = {};          // list of all players in the game
+    // Warlock.units = [];            // list of all units for all players
+    // Warlock.mapHeight = 0;
+    // Warlock.mapWidth = 0;
+    // Warlock.selectedUnit = null;   // The currently selected unit.
+    // Warlock.moveHexes = [];        // The hexes that the selected unit can move to.
+    // Warlock.moveRemain = {};       // For each hex in moveHexes, cost of moving there.
+    // Warlock.targetHexes = [];      // The hexes that the current unit action can target.
 
 })( window.Warlock = window.Warlock || {} );
 
@@ -89,7 +90,7 @@
             steps[i + 1] = [];
             steps[i].forEach(function(curr) {
                 disc.push(curr);
-                Warlock.map.getNeighbors(curr).forEach(function(nb) {
+                Warlock.game.getMap().getNeighbors(curr).forEach(function(nb) {
                     if( $.inArray(nb, done) == -1 ) {
                         steps[i + 1].push(nb);
                         done.push(nb);
@@ -105,78 +106,268 @@
 })( window.Warlock = window.Warlock || {} );
 
 
+(function( Warlock, undefined ) {
+
+    Warlock.UI = function(game) {
+        this._initUI(game)
+    };
+
+    Warlock.UI.prototype = {
+        _initUI: function(game) {
+            this.game = game;
+
+            this.selectedUnit = null;   // The currently selected unit.
+            this.moveHexes = [];        // The hexes that the selected unit can move to.
+            this.moveRemain = {};       // Cost of moving to this hex from current.
+            this.targetHexes = [];      // Hexes that the current unit action can target.
+            this.blockClick = false;
+            this.actionButtons = [];
+
+            this._initElems();          // All of the KineticJS objects used for rendering
+            this._initMap();
+
+            /* Initialize all of the units. */
+            this.game.getUnits().forEach(function(unit) {
+                unit.initializeUI();
+                unit.hex.ui.elem.add(unit.ui.elem);
+            });
+
+            this.redraw();
+        },
+        
+        _uiRect: function(config) {
+            var base = {
+                stroke: '#555',
+                strokeWidth: 3,
+                fill: '#ddd',
+                cornerRadius: 10
+            };
+            var config = $.extend(base, config);
+            return new Kinetic.Rect(config);
+        },            
+
+        _initElems: function() {
+
+            this.elems = {};
+
+            // STAGE
+            this.elems.stage = new Kinetic.Stage({
+                container: 'game-container',
+                width: 900,
+                height: 600
+            });
+
+
+            // MAP LAYER
+            // Contains all elements that are on, or can be on, the map, including
+            // the hexes, terrains, units, cities, etc.
+            // All nodes on the map layer are added when the map and units are loaded.
+            this.elems.mapLayer = new Kinetic.Layer();
+            this.elems.mapLayer.on('dragstart', function(event) {
+                Warlock.dragDist = 0;
+                Warlock.dragX = event.x;
+                Warlock.dragY = event.y;
+            });
+            this.elems.mapLayer.on('dragmove', function(event) {
+                var dx = event.x - Warlock.dragX;
+                var dy = event.y - Warlock.dragY;
+                Warlock.dragDist += Math.sqrt( dx * dx + dy * dy );
+                Warlock.dragX = event.x;
+                Warlock.dragY = event.y;
+
+                if( dragDist > 2 ) {
+                    Warlock.blockClick = true;
+                }
+            });
+
+
+            // INFO LAYER
+            // Contains all information that users need which is not contained on the map
+            // layer. This includes unit information, game status, etc. as well as buttons
+            // that the user can click to perform actions.
+            this.elems.infoLayer = new Kinetic.Layer();
+
+            // UNIT INFO
+            // Displays information about the currently selected unit.
+            this.elems.unitInfoRect = this._uiRect({
+                width: 150,
+                height: 100
+            });
+            this.elems.unitInfoText = new Kinetic.Text({
+                text: 'UNIT INFO',
+                fontSize: 18,
+                fontFamily: 'Calibri',
+                fill: 'black',
+                width: this.elems.unitInfoRect.getWidth(),
+                padding: 10,
+                align: 'center'
+            });
+            this.elems.unitInfoGroup = new Kinetic.Group({
+                opacity: 0.8,
+                x: 1,
+                y: this.elems.stage.getHeight() - this.elems.unitInfoRect.getHeight() - 1,
+            });
+            this.elems.unitInfoGroup.add(this.elems.unitInfoRect);
+            this.elems.unitInfoGroup.add(this.elems.unitInfoText);
+            this.elems.infoLayer.add(this.elems.unitInfoGroup);
+
+            // END TURN BUTTON
+            // Allows the current player to end his or her turn.
+            this.elems.endTurnButton = this._uiRect({
+                width: 100,
+                height: 30,
+            });
+            this.elems.endTurnText = new Kinetic.Text({
+                text: 'END TURN',
+                fontSize: 14,
+                fontFamily: 'Calibri',
+                fill: 'black',
+                width: this.elems.endTurnButton.getWidth(),
+                align: 'center',
+                y: 8
+            });
+            this.elems.endTurnGroup = new Kinetic.Group({
+                opacity: 0.8,
+                x: this.elems.stage.getWidth() - this.elems.endTurnButton.getWidth() - 1,
+                y: this.elems.stage.getHeight() - this.elems.endTurnButton.getHeight() - 1
+            });
+            this.elems.endTurnGroup.add(this.elems.endTurnButton);
+            this.elems.endTurnGroup.add(this.elems.endTurnText);
+            this.elems.infoLayer.add(this.elems.endTurnGroup);
+            this.elems.endTurnGroup.on('click', function(event) {
+                $.get("/endturn", function(string) {
+                    alert(string)
+                    Warlock.endTurn();
+                })            
+            });
+
+
+            // Add all of the layers to the stage.
+            this.elems.stage.add(this.elems.mapLayer);
+            this.elems.stage.add(this.elems.infoLayer);
+        },
+
+            /**
+             * Redraw all layers.
+             */
+        redraw: function() {
+            this.elems.mapLayer.draw();
+            this.elems.infoLayer.draw();
+        },
+
+        clearUnitDetails: function() {
+            console.log( 'TODO: Roll this into setSelectedUnit(null)' );
+            this.elems.unitInfoText.setText("");
+            this.elems.infoLayer.draw();
+        },
+
+        clearActionButtons: function() {
+            this.actionButtons.forEach(function(button) {
+                button.remove();
+            });
+            this.actionButtons = [];
+        },
+
+        setActionButtons: function(unit) {
+            var gameRef = this;
+            var actions = unit.actions;
+
+            this.clearActionButtons();
+
+            for( var i = 0; i < actions.length; i++ ) {
+                (function() {
+                    var action = actions[i];
+                    var rect = gameRef._uiRect({
+                        width: gameRef.elems.unitInfoRect.getWidth(),
+                        height: 30
+                    });
+                    var text = new Kinetic.Text({
+                        text: action.getName(),
+                        fontSize: 16,
+                        fontFamily: 'Calibri',
+                        fill: 'black',
+                        width: rect.getWidth(),
+                        align: 'center',
+                        y: 8
+                    });
+                    var group = new Kinetic.Group({
+                        opacity: 0.8,
+                        x: 1,
+                        y: gameRef.elems.unitInfoGroup.getY() - (rect.getHeight() * (actions.length - i))
+                    });
+                    group.on('mouseenter', function(event) {
+                        group.setOpacity(1.0);
+                        gameRef.elems.infoLayer.draw();
+                    });
+                    group.on('mouseleave', function(event) {
+                        group.setOpacity(0.8);
+                        gameRef.elems.infoLayer.draw();
+                    });
+                    group.on('click', function(event) {
+                        Warlock.startAction(unit, action);
+                    });
+                    group.add(rect);
+                    group.add(text);
+                    gameRef.actionButtons.push(group);
+                    gameRef.elems.infoLayer.add(group);
+                })();
+            }
+        },
+
+        _initMap: function() {
+            var gameRef = this;
+            var map = this.game.getMap();
+            var stage = this.elems.stage;
+
+            var mapHeight = (map.rows * Warlock.HEX_RAD * 3 / 2) + (Warlock.HEX_RAD / 2);
+            var mapWidth = map.cols * Warlock.HEX_WIDTH;
+            
+            /* Add the background for the map. */
+            this.elems.background = new Kinetic.Rect({
+                height: mapHeight + stage.getHeight(),
+                width: mapWidth + stage.getWidth(),
+                x: -Math.floor( stage.getWidth() / 2 ),
+                y: -Math.floor( stage.getHeight() / 2 ),
+                fill: 'gray',
+                strokeWidth: 0
+            });
+            this.elems.mapLayer.add(this.elems.background);
+
+            /* Add the hexes from the map to the mapLayer. */
+            for( row in map.hexes ) {
+                for( col in map.hexes[row] ) {
+                    var hex = map.hexes[row][col];
+                    hex.initializeUI();
+                    this.elems.mapLayer.add(hex.ui.elem);
+                }
+            }
+
+            /* Update the drag settings for the map. */
+            this.elems.mapLayer.setDraggable(true);
+            this.elems.mapLayer.setDragBoundFunc(function(pos) {
+                return Warlock.util.adjustPos(pos, {
+                    maxx: Math.floor( stage.getWidth() / 2 ),
+                    maxy: Math.floor( stage.getHeight() / 2 ),
+                    minx: 1.5 * stage.getWidth() - gameRef.elems.background.getWidth(),
+                    miny: 1.5 * stage.getHeight() - gameRef.elems.background.getHeight()
+                });
+            });
+        },
+
+
+    };
+
+
+    /* Create some basic ui functions. */
+    
+
+})( window.Warlock = window.Warlock || {} );
+
+
 /*
  * Game management functions.
  */
 (function( Warlock, undefined ) {
-    /* Load a map, given the details in the form of a map object. */
-    Warlock.loadMap = function(mapConfig) {
-
-        var map = new Warlock.Map(mapConfig);
-
-        Warlock.map = map;
-
-        /* Clear the old map. */
-        Warlock.ui.mapLayer.removeChildren();
-
-        /* Add the background for the map. */
-        Warlock.ui.background = new Kinetic.Rect({
-            height: map.height + Warlock.ui.stage.getHeight(),
-            width: map.width + Warlock.ui.stage.getWidth(),
-            x: -Math.floor( Warlock.ui.stage.getWidth() / 2 ),
-            y: -Math.floor( Warlock.ui.stage.getHeight() / 2 ),
-            fill: 'gray',
-            strokeWidth: 0
-        });
-        Warlock.ui.mapLayer.add(Warlock.ui.background);
-
-        /* Add the hexes from the map to the mapLayer. */
-        for( row in map.hexes ) {
-            for( col in map.hexes[row] ) {
-                Warlock.ui.mapLayer.add(map.hexes[row][col].ui.elem);
-            }
-        }
-
-        /* Update the drag settings for the map. */
-        Warlock.ui.mapLayer.setDraggable(true);
-        Warlock.ui.mapLayer.setDragBoundFunc(function(pos) {
-            return Warlock.util.adjustPos(pos, {
-                maxx: Math.floor( Warlock.ui.stage.getWidth() / 2 ),
-                maxy: Math.floor( Warlock.ui.stage.getHeight() / 2 ),
-                minx: 1.5 * Warlock.ui.stage.getWidth() - Warlock.ui.background.getWidth(),
-                miny: 1.5 * Warlock.ui.stage.getHeight() - Warlock.ui.background.getHeight()
-            });
-        });
-        
-        Warlock.ui.redraw();
-    };
-
-    /*
-     * @return the player whose turn is next
-     */
-    Warlock.nextPlayer = function() {
-        var nextId = Warlock.currentPlayer.id + 1;
-        if( ! nextId in Warlock.players ) {
-            nextId = 0;
-        }
-        return Warlock.players[nextId];
-    };
-
-    /*
-     * @result Turn cleanup is completed, and the next player's turn is begun.
-     */
-    Warlock.endTurn = function() {
-        /* Reset the movement points of all of the current players units. */
-        for( i in Warlock.units ) {
-            var unit = Warlock.units[i];
-            if( unit.getPlayer() == Warlock.currentPlayer ) {
-                unit.setMove(unit.base.move);
-            }
-        }
-        
-        Warlock.unselectUnit();
-        Warlock.currentPlayer = Warlock.nextPlayer();
-    }
 
     /* 
      * Create a new, empty damage dictionary.
@@ -238,7 +429,7 @@
                 remain[hex.getHashKey()] = currentlyHandling;
 
                 /* Find any neighbors that haven't been done, and get ready to do them. */
-                var nbs = Warlock.map.getNeighbors(hex);
+                var nbs = Warlock.game.getMap().getNeighbors(hex);
                 for( n in nbs ) {
                     if( $.inArray(nbs[n], queue) == -1 ) {
                         var nbCost = unit.moveCost(nbs[n]);
@@ -291,13 +482,13 @@
         /* Pre-conditions */
         console.assert( destHex !== undefined );
         console.assert( destHex.type == 'Hex' );
-        console.assert( Warlock.currentPlayer != null );
+        console.assert( Warlock.game.getCurrentPlayer() != null );
 
         /* Convenience declarations */
         var unit = Warlock.selectedUnit;
 
         if( unit != null && 
-            unit.getPlayer() == Warlock.currentPlayer &&
+            unit.getPlayer() == Warlock.game.getCurrentPlayer() &&
             $.inArray(destHex, Warlock.moveHexes) >= 0
           ) {
             unit.setMove(Warlock.moveRemain[destHex.getHashKey()]);
@@ -311,28 +502,10 @@
         }
     };
 
-    Warlock.addUnit = function(unitConfig) {
-        var hex = Warlock.map.hexes[unitConfig.pos.row][unitConfig.pos.col];
-        var unit = new Warlock.Unit(unitConfig);
-        unit.initializeUI();
-
-        if( hex === undefined ) {
-            throw 'unknown hex: ' + unitConfig.pos;
-        }
-
-        console.assert(unit.hex == null);
-        console.assert(hex.getUnit() == null);
-
-        Warlock.units.push(unit);
-        unit.hex = hex;
-        hex.setUnit(unit);
-        hex.ui.setUnit(unit);
-    };
-
     Warlock.showMoveOutlines = function() {
         for( i in Warlock.moveHexes ) {
             var finalMove = Warlock.moveRemain[Warlock.moveHexes[i].getHashKey()] <= 0;
-            var activeUnit = Warlock.selectedUnit.getPlayer() == Warlock.currentPlayer;
+            var activeUnit = Warlock.selectedUnit.getPlayer() == Warlock.game.getCurrentPlayer();
             Warlock.moveHexes[i].ui.outline({
                 color: finalMove ? 'red' : 'magenta',
                 opacity: activeUnit ? 1.0 : 0.6
@@ -413,7 +586,7 @@
 
     Warlock.updatePrimaryUnitStats = function(unit) {
         var text = unit.name + '\nhp: ' + Math.round(unit.current.hp) + '/' + unit.base.hp + '\nmove: ' + unit.getMove() + '/' + unit.base.move;
-        Warlock.ui.unitInfoText.setText(text);
+        Warlock.ui.elems.unitInfoText.setText(text);
     };
 
     Warlock.updateSecondaryUnitStats = function(unit) {
@@ -602,13 +775,13 @@
                     color: 'white',
                     opacity: 0.3
                 });
-                Warlock.ui.mapLayer.draw();
+                Warlock.ui.elems.mapLayer.draw();
             }
         });
         this.ui.elem.on('mouseleave', function(event) {
             if( !hexRef.ui.keepHighlight ) {
                 hexRef.ui.highlight(false);
-                Warlock.ui.mapLayer.draw();
+                Warlock.ui.elems.mapLayer.draw();
             }
         });
         this.ui.elem.on('click', function(event) {
@@ -703,175 +876,6 @@ $(document).ready(function() {
      * require DOM elements.
      */
     (function( Warlock, undefined ) {
-        Warlock.setupStage = function() {
-            Warlock.ui = {};
-            Warlock.ui.blockClick = false;
-
-            Warlock.ui.stage = new Kinetic.Stage({
-                container: 'game-container',
-                width: 900,
-                height: 600
-            });
-
-            /* Map layer. */
-
-            Warlock.ui.mapLayer = new Kinetic.Layer();
-            Warlock.ui.mapLayer.on('dragstart', function(event) {
-                Warlock.dragDist = 0;
-                Warlock.dragX = event.x;
-                Warlock.dragY = event.y;
-            });
-            Warlock.ui.mapLayer.on('dragmove', function(event) {
-                var dx = event.x - Warlock.dragX;
-                var dy = event.y - Warlock.dragY;
-                Warlock.dragDist += Math.sqrt( dx * dx + dy * dy );
-                Warlock.dragX = event.x;
-                Warlock.dragY = event.y;
-
-                if( dragDist > 2 ) {
-                    Warlock.blockClick = true;
-                }
-            });
-
-
-
-            /* UI Infomation layer. */
-
-            Warlock.ui.infoLayer = new Kinetic.Layer();
-
-            /* Formatting to use for UI rectangles. */
-            var uiRect = function(config) {
-                var base = {
-                    stroke: '#555',
-                    strokeWidth: 3,
-                    fill: '#ddd',
-                    cornerRadius: 10
-                };
-                var config = $.extend(base, config);
-                return new Kinetic.Rect(config);
-            }
-
-            Warlock.ui.unitInfoRect = uiRect({
-                width: 150,
-                height: 100
-            });
-
-
-            Warlock.ui.unitInfoText = new Kinetic.Text({
-                text: 'UNIT INFO',
-                fontSize: 18,
-                fontFamily: 'Calibri',
-                fill: 'black',
-                width: Warlock.ui.unitInfoRect.getWidth(),
-                padding: 10,
-                align: 'center'
-            });
-
-            Warlock.ui.unitInfoGroup = new Kinetic.Group({
-                opacity: 0.8,
-                x: 1,
-                y: Warlock.ui.stage.getHeight() - Warlock.ui.unitInfoRect.getHeight() - 1,
-            });
-            Warlock.ui.unitInfoGroup.add(Warlock.ui.unitInfoRect);
-            Warlock.ui.unitInfoGroup.add(Warlock.ui.unitInfoText);
-            Warlock.ui.infoLayer.add(Warlock.ui.unitInfoGroup);
-
-            Warlock.ui.endTurnButton = uiRect({
-                width: 100,
-                height: 30,
-            });
-            Warlock.ui.endTurnText = new Kinetic.Text({
-                text: 'END TURN',
-                fontSize: 14,
-                fontFamily: 'Calibri',
-                fill: 'black',
-                width: Warlock.ui.endTurnButton.getWidth(),
-                align: 'center',
-                y: 8
-            });
-            Warlock.ui.endTurnGroup = new Kinetic.Group({
-                opacity: 0.8,
-                x: Warlock.ui.stage.getWidth() - Warlock.ui.endTurnButton.getWidth() - 1,
-                y: Warlock.ui.stage.getHeight() - Warlock.ui.endTurnButton.getHeight() - 1
-            });
-            Warlock.ui.endTurnGroup.add(Warlock.ui.endTurnButton);
-            Warlock.ui.endTurnGroup.add(Warlock.ui.endTurnText);
-            Warlock.ui.infoLayer.add(Warlock.ui.endTurnGroup);
-            Warlock.ui.endTurnGroup.on('click', function(event) {
-                $.get("/endturn", function(string) {
-                    alert(string)
-                    Warlock.endTurn();
-                })            
-            });
-
-
-            /* Add layers to stage. */
-            Warlock.ui.stage.add(Warlock.ui.mapLayer);
-            Warlock.ui.stage.add(Warlock.ui.infoLayer);
-
-            /* Create some basic ui functions. */
-            Warlock.ui.redraw = function() {
-                Warlock.ui.mapLayer.draw();
-                Warlock.ui.infoLayer.draw();
-            };
-
-            Warlock.ui.clearUnitDetails = function() {
-                Warlock.ui.unitInfoText.setText("");
-                Warlock.ui.infoLayer.draw();
-            };
-
-            Warlock.ui.actionButtons = [];
-            Warlock.ui.clearActionButtons = function() {
-                for( i in Warlock.ui.actionButtons ) {
-                    Warlock.ui.actionButtons[i].remove();
-                }
-                Warlock.ui.actionButtons = [];
-            };
-            Warlock.ui.setActionButtons = function(unit) {
-                Warlock.ui.clearActionButtons();
-
-                var actions = unit.actions;
-
-                for( var i = 0; i < actions.length; i++ ) {
-                    (function() {
-                        var action = actions[i];
-                        var rect = uiRect({
-                            width: Warlock.ui.unitInfoRect.getWidth(),
-                            height: 30
-                        });
-                        var text = new Kinetic.Text({
-                            text: action.getName(),
-                            fontSize: 16,
-                            fontFamily: 'Calibri',
-                            fill: 'black',
-                            width: rect.getWidth(),
-                            align: 'center',
-                            y: 8
-                        });
-                        var group = new Kinetic.Group({
-                            opacity: 0.8,
-                            x: 1,
-                            y: Warlock.ui.unitInfoGroup.getY() - (30 * (actions.length - i))
-                        });
-                        group.on('mouseenter', function(event) {
-                            group.setOpacity(1.0);
-                            Warlock.ui.infoLayer.draw();
-                        });
-                        group.on('mouseleave', function(event) {
-                            group.setOpacity(0.8);
-                            Warlock.ui.infoLayer.draw();
-                        });
-                        group.on('click', function(event) {
-                            Warlock.startAction(unit, action);
-                        });
-                        group.add(rect);
-                        group.add(text);
-                        Warlock.ui.actionButtons.push(group);
-                        Warlock.ui.infoLayer.add(group);
-                    })();
-                }
-            };
-        };
 
         Warlock.socket = io.connect('http://localhost');
         Warlock.socket.emit('ready', 'from client socket');
@@ -902,16 +906,8 @@ $(document).ready(function() {
             Warlock.loader.addCompletionListener(function() { 
                 console.log( 'Resources loaded.' );
                 console.log( 'Starting game.' );
-                Warlock.setupStage();
-                data.players.forEach(function(player) {
-                    Warlock.players[player.id] = player;
-                });
-                Warlock.loadMap(data.map);
-                data.units.forEach(function(unitConfig) {
-                    Warlock.addUnit(unitConfig);
-                });
-                Warlock.currentPlayer = Warlock.players[data.currentPlayerId];
-                Warlock.ui.redraw();
+                Warlock.game = new Warlock.Game(data);
+                Warlock.ui = new Warlock.UI(Warlock.game);
             }); 
             
             // begin downloading images 

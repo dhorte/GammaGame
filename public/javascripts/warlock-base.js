@@ -63,6 +63,75 @@
     Warlock.vegetation.SWAMP  = 3;
 
 
+    Warlock.Game = function(config) {
+        this._initGame(config);
+    };
+
+    Warlock.Game.prototype = {
+        _initGame: function(config) {
+            this.attrs = {
+                map: new Warlock.Map(config.map),
+                players: [],
+                units: [],
+                currentPlayerIndex: config.currentPlayerIndex || 0,
+            };
+
+            /* Load the players. */
+            for( i in config.players ) {
+                this.addPlayer(config.players[i]);
+            }
+
+            /* Load the units. */
+            for( i in config.units ) {
+                this.addUnit(config.units[i]);
+            }
+        },
+
+        addPlayer: function(playerConfig) {
+            if( playerConfig !== undefined ) {
+                this.attrs.players.push(new Warlock.Player(playerConfig));
+            }
+        },
+
+        addUnit: function(unitConfig) {
+            if( unitConfig !== undefined ) {
+                var hex = this.attrs.map.hexes[unitConfig.pos.row][unitConfig.pos.col];
+                var unit = new Warlock.Unit(unitConfig);
+
+                console.assert(hex !== undefined);
+                console.assert(unit.hex == null);
+                console.assert(hex.getUnit() == null);
+
+                this.attrs.units.push(unit);
+                unit.hex = hex;
+                hex.setUnit(unit);
+            }
+        },
+
+        advancePlayer: function() {
+            this.attrs.currentPlayerIndex += 1;
+            if( this.attrs.currentPlayerIndex >= players.length ) {
+                this.attrs.currentPlayerIndex = 0;
+            }
+        },
+
+        endTurn: function() {
+            Warlock.units.forEach(function(unit) {
+                if( unit.getPlayer() == Warlock.currentPlayer ) {
+                    unit.setMove(unit.base.move);
+                }
+            });
+
+            this.advancePlayer();
+        },
+
+        getCurrentPlayer: function() {
+            return this.attrs.players[this.attrs.currentPlayerIndex];
+        },
+    };
+
+    Warlock.Global.addGetters(Warlock.Game, ['players', 'units', 'map']);
+
     /* Class for players. */
     Warlock.Player = function(config) {
         this._initPlayer(config);
@@ -98,8 +167,6 @@
 
             /* Values based on other values. */
             this.type = 'Map';
-            this.height = (this.rows * Warlock.HEX_RAD * 3 / 2) + (Warlock.HEX_RAD / 2);
-            this.width = this.cols * Warlock.HEX_WIDTH;
 
             /* The hexes that compose the map. */
             this.hexes = [];
@@ -108,7 +175,6 @@
                 this.hexes.push([]);
                 for( col in config.hexes[row] ) {
                     var hex = new Warlock.Hex(config.hexes[row][col])
-                    hex.initializeUI();
                     this.hexes[row].push(hex);
                 }
             }
@@ -322,6 +388,7 @@
             this.base.move = config.move;
 
             /* Optional values with defaults. */
+            this.hex = null;
             this.type = 'Unit';
             this.powerMod = config.powerMod || 0;
             this.damageMod = $.extend(Warlock.damageDict(), config.damageMod);
@@ -355,7 +422,7 @@
         },
 
         getPlayer: function() {
-            return Warlock.players[this.player_id];
+            return Warlock.game.getPlayers()[this.player_id];
         },
 
         getMove: function() {
