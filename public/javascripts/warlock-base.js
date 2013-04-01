@@ -1,5 +1,43 @@
+(function() {
+    if (!Array.prototype.indexOf) {
+        Array.prototype.indexOf = function (searchElement /*, fromIndex */ ) {
+            "use strict";
+            if (this == null) {
+                throw new TypeError();
+            }
+            var t = Object(this);
+            var len = t.length >>> 0;
+            if (len === 0) {
+                return -1;
+            }
+            var n = 0;
+            if (arguments.length > 1) {
+                n = Number(arguments[1]);
+                if (n != n) { // shortcut for verifying if it's NaN
+                    n = 0;
+                } else if (n != 0 && n != Infinity && n != -Infinity) {
+                    n = (n > 0 || -1) * Math.floor(Math.abs(n));
+                }
+            }
+            if (n >= len) {
+                return -1;
+            }
+            var k = n >= 0 ? n : Math.max(len - Math.abs(n), 0);
+            for (; k < len; k++) {
+                if (k in t && t[k] === searchElement) {
+                    return k;
+                }
+            }
+            return -1;
+        }
+    }
+
+})();
+
 (function(Warlock) {
     Warlock.Global = {
+        NULL_ID: -1,
+
         _addGetter: function(constructor, attr) {
             var method = 'get' + attr.charAt(0).toUpperCase() + attr.slice(1);
             if( constructor.prototype[method] === undefined ) {
@@ -41,8 +79,8 @@
          * Create a new, empty damage dictionary.
          * Useful for calculating damage, storing damage modifiers, etc.
          */
-        damageDict: function() {
-            return {
+        damageDict: function(modifiers) {
+            var base = {
                 melee: 0,
                 range: 0,
                 life: 0,
@@ -50,6 +88,12 @@
                 spirit: 0,
                 elemental: 0
             };
+
+            for( key in modifiers ) {
+                base[key] = modifiers[key];
+            }
+
+            return base;
         }
 
 
@@ -87,6 +131,10 @@
 
     Warlock.Game.prototype = {
         _initGame: function(config) {
+            this._id = config.gameId;
+            this._nextId = config.nextId;
+            this._listeners = [];
+
             this.attrs = {
                 map: new Warlock.Map(config.map),
                 players: [],
@@ -105,9 +153,51 @@
             }
         },
 
+        _newId: function() {
+            return this._nextId++;
+        },
+
+        getId: function() {
+            return this._id;
+        },
+
+        serialize: function() {
+            var gameRef = this;
+
+            var playersArray = [];
+            this.getPlayers().forEach(function(player) {
+                playersArray.push(player.serialize());
+            });
+
+            var unitsArray = [];
+            this.getUnits().forEach(function(unit) {
+                unitsArray.push(unit.serialize());
+            });
+            
+            return {
+                gameId: gameRef._id,
+                nextId: gameRef._nextId,
+                currentPlayerId: gameRef.attrs.currentPlayerId,
+                map: gameRef.attrs.map.serialize(),
+                players: playersArray,
+                units: unitsArray
+            }
+        },
+
+        addListener: function(listener) {
+            if( this._listeners.indexOf(listener) == -1 ) {
+                this._listeners.push(listener);
+            }
+        },
+
         addPlayer: function(playerConfig) {
             if( playerConfig !== undefined ) {
-                this.attrs.players.push(new Warlock.Player(playerConfig));
+                var player = new Warlock.Player(playerConfig);
+
+                if( player._id == Warlock.Global.NULL_ID ) {
+                    player._id = this._newId();
+                }
+                this.attrs.players.push(player);
             }
         },
 
@@ -115,6 +205,10 @@
             if( unitConfig !== undefined ) {
                 var hex = this.attrs.map.hexes[unitConfig.pos.row][unitConfig.pos.col];
                 var unit = new Warlock.Unit(unitConfig);
+
+                if( unit._id == Warlock.Global.NULL_ID ) {
+                    unit._id = this._newId();
+                }
 
                 console.assert(hex !== undefined);
                 console.assert(unit.hex == null);
@@ -133,6 +227,78 @@
             }
         },
 
+        /*
+         */
+        applyAttackResult: function(result) {
+            var attacker = this.getUnit(result.attacker.id);
+            var defender = this.getUnit(result.defender.id);
+
+            attacker.current.hp -= result.attacker.hpLost;
+            defender.current.hp -= result.defender.hpLost;
+
+            attacker.current.move = 0;
+
+            this.notify('attack-result', result);
+
+            if( attacker.current.hp <= 0 ) {
+                this.removeUnit(attacker);
+                this.notify('unit-death', attacker);
+            }
+            if( defender.current.hp <= 0 ) {
+                this.removeUnit(defender);
+                this.notify('unit-death', defender);
+            }
+        },
+
+        removeUnit: function(unit) {
+            // Remove from array of all units.
+            var index = this.units.indexOf(unit);
+            console.assert( index >= 0 );
+            this.units = this.units.splice(index, 1);
+            
+            // Remove from hex.
+            unit.hex.unit = null;
+
+            notify('unit-removed', unit);
+        },
+
+        /**
+         * calcDamage(source, target, action, isAttacking)
+         * @returns {
+         *   total: total damage to apply
+         *   types: Warlock.damageDict; damage by type
+         *   global_defense: Dict( memo about each type of defense applied to all types )
+         *   defense: Dict( memo about defense applied to each damage type )
+         */
+        calcDamage: function(source, target, action, isAttacking) {
+            var power = source.power;
+
+            /* Apply all power mods. */
+            power += power * action.getPowerMod();
+            power += power * source.powerMod;
+
+            /* Calculate damage for all types. */
+            var damage = Warlock.Global.damageDict();
+            for( key in source.damageMod ) {
+                damage[key] = power * source.damageMod[key];
+            };
+
+            /* Add in the base damage. */
+            damage[action.getDamageType()] += power;
+
+            /* Apply damage resistance. */
+            for( key in damage ) {
+                damage[key] -= (damage[key] * target.resistance[key]);
+            };
+
+            var totalDamage = 0;
+            for( key in damage ) {
+                totalDamage += damage[key];
+            };
+
+            return totalDamage;
+        },
+
         endTurn: function() {
             Warlock.units.forEach(function(unit) {
                 if( unit.getPlayer() == Warlock.currentPlayer ) {
@@ -148,6 +314,45 @@
         },
 
         /**
+         * getMap()
+         * @return Warlock.Map
+         */
+
+        /**
+         * getPlayers()
+         * @return Array of Warlock.Player
+         */
+
+        getUnit: function(id) {
+            var units = this.getUnits();
+            for( i in units ) {
+                if( units[i].getId() == id ) {
+                    return units[i];
+                }
+            }
+            return null;
+        },
+
+        /**
+         * notify(eventName, data)
+         * @param eventName String
+         * @param data arbitrary value
+         *
+         * For each object that has been registered to listen to events from this game,
+         * send it the event.
+         */
+        notify: function(eventName, data) {
+            this._listeners.forEach(function(listener) {
+                listener.receive(eventName, data);
+            });
+        },
+
+        /**
+         * getUnits()
+         * @return Array of Warlock.Unit
+         */
+
+        /**
          * unitMovement(unit)
          * @param unit Warlock.Unit
          * @return {
@@ -156,7 +361,7 @@
          * }
          */
         unitMovement: function(unit) {
-            console.assert($.inArray(unit, this.getUnits()) >= 0);
+            console.assert(this.getUnits().indexOf(unit) >= 0);
 
             var done = [];
             var queue = [unit.hex];
@@ -205,7 +410,7 @@
                     // ready to do them.
                     var nbs = this.getMap().getNeighbors(hex);
                     for( n in nbs ) {
-                        if( $.inArray(nbs[n], queue) == -1 ) {
+                        if( queue.indexOf(nbs[n]) == -1 ) {
                             var nbCost = unit.moveCost(nbs[n]);
                             if( nbCost <= currentlyHandling ) {
                                 addHex(nbs[n], currentlyHandling - nbCost);
@@ -223,59 +428,6 @@
             };
 
         },
-
-        /**
-         * calcDamage(source, target, action, isAttacking)
-         * @returns {
-         *   total: total damage to apply
-         *   types: Warlock.damageDict; damage by type
-         *   global_defense: Dict( memo about each type of defense applied to all types )
-         *   defense: Dict( memo about defense applied to each damage type )
-         */
-        calcDamage: function(source, target, action, isAttacking) {
-            var power = source.power;
-
-            /* Apply all power mods. */
-            power += power * action.getPowerMod();
-            power += power * source.powerMod;
-
-            /* Calculate damage for all types. */
-            var damage = Warlock.Global.damageDict();
-            for( key in source.damageMod ) {
-                damage[key] = power * source.damageMod[key];
-            };
-
-            /* Add in the base damage. */
-            damage[action.getDamageType()] += power;
-
-            /* Apply damage resistance. */
-            for( key in damage ) {
-                damage[key] -= (damage[key] * target.resistance[key]);
-            };
-
-            var totalDamage = 0;
-            for( key in damage ) {
-                totalDamage += damage[key];
-                console.log( key + ' -> ' + damage[key] );
-            };
-
-            return totalDamage;
-        },
-
-        /**
-         * getPlayers()
-         * @return Array of Warlock.Player
-         */
-
-        /**
-         * getUnits()
-         * @return Array of Warlock.Unit
-         */
-
-        /**
-         * getMap()
-         * @return Warlock.Map
-         */
     };
 
     Warlock.Global.addGetters(Warlock.Game, ['players', 'units', 'map']);
@@ -289,11 +441,19 @@
         _initPlayer: function(config) {
 
             /* Required for object creation. */
-            this.id = config.id;
+            this._id = config.id || Warlock.Global.NULL_ID;
             this.color = config.color;
 
             /* Calculated from other values. */
             this.type = 'Player';
+        },
+
+        serialize: function() {
+            var playerRef = this;
+            return {
+                id: playerRef._id,
+                color: playerRef.color
+            };
         },
     };
 
@@ -326,6 +486,27 @@
                     this.hexes[row].push(hex);
                 }
             }
+        },
+
+        serialize: function() {
+            var mapref = this;
+
+            var hexes = [];
+            for( row in this.hexes ) {
+                var hexRow = [];
+                for( col in this.hexes[row] ) {
+                    var hex = this.hexes[row][col];
+                    hexRow.push(hex.serialize());
+                }
+                hexes.push(hexRow);
+            }
+
+            return {
+                name: mapref.name,
+                rows: mapref.rows,
+                cols: mapref.cols,
+                hexes: hexesArray,
+            };
         },
 
         calcNeighbors: function(hex) {
@@ -403,6 +584,15 @@
             case Warlock.elevation.MOUNTAINS: return '#aaa';
             }
         },
+
+        serialize: function() {
+            var self = this;
+            return {
+                height: self.height,
+                climate: self.climate,
+                veg: self.veg
+            };
+        },
     };
 
     /* Class for hexes. */
@@ -430,6 +620,16 @@
                 hashKey: 'hex' + config.row + ',' + config.col,
             }
 
+        },
+
+        serialize: function() {
+            var self = this;
+
+            return {
+                row: self.getRow(),
+                col: self.getCol(),
+                terrain: self.getTerrain().serialize()
+            };
         },
 
         /**
@@ -507,8 +707,19 @@
                 
                 /* Optional. */
                 powerMod: config.powerMod || 0.0,
-                effects: config.effects || [],
             }
+        },
+
+        serialize: function() {
+            var self = this;
+
+            return {
+                name: self.getName(),
+                kind: self.getKind(),
+                range: self.getRange(),
+                damageType: self.getDamageType(),
+                powerMod: self.getPowerMod(),
+            };
         },
     };
     
@@ -524,23 +735,22 @@
             var unitRef = this;
 
             /* Dictionaries that we'll need to fill. */
-            this.base = {};
             this.actions = [];
 
             /* Required for object creation. */
+            this.base = config.base;
             this.name = config.name;
             this.player_id = config.player_id;
             this.power = config.power;
             this.powerKind = config.powerKind;
-            this.base.hp = config.hp;
-            this.base.move = config.move;
 
             /* Optional values with defaults. */
+            this._id = config.id || Warlock.Global.NULL_ID;
             this.hex = null;
             this.type = 'Unit';
             this.powerMod = config.powerMod || 0;
-            this.damageMod = $.extend(Warlock.Global.damageDict(), config.damageMod);
-            this.resistance = $.extend(Warlock.Global.damageDict(), config.resistance);
+            this.damageMod = Warlock.Global.damageDict(config.damageMod);
+            this.resistance = Warlock.Global.damageDict(config.resistance);
             this.flying = config.flying || false;
             this.basicAttack = null;
 
@@ -566,15 +776,68 @@
             }
 
             /* Copy the base values into current, which is where they will be updated. */
-            this.current = $.extend({}, this.base);
+            if( config.current === undefined ) {
+                this.current = {};
+                for( key in config.base ) {
+                    this.current[key] = config.base[key];
+                }
+            }
+            else {
+                this.current = config.current;
+            }
         },
 
-        getPlayer: function() {
-            return Warlock.game.getPlayers()[this.player_id];
+        serialize: function() {
+            var self = this;
+
+            var actionsArray = [];
+            this.actions.forEach(function(action) {
+                actionsArray.push(action.serialize());
+            });
+            // Don't include the basic attack in the serialization.
+            if( self.basicAttack != null ) {
+                actionsArray = actionsArray.slice(1);
+            }
+
+            return {
+                id: self._id,
+                name: self.name,
+                player_id: self.player_id,
+                power: self.power,
+                powerKind: self.powerKind,
+                powerMod: self.powerMod,
+                base: self.base,
+                current: self.current,
+                pos: {
+                    row: self.hex.row,
+                    col: self.hex.col
+                },
+                actions: actionArray,
+                resistance: self.resistance,
+                damageMod: self.damageMod,
+                flying: self.flying
+            };
+        },
+
+        getAction: function(name) {
+            for( i in this.actions ) {
+                if( this.actions[i].getName() == name ) {
+                    return this.actions[i];
+                }
+            }
+            return null;
+        },
+
+        getId: function() {
+            return this._id;
         },
 
         getMove: function() {
             return this.current.move;
+        },
+
+        getPlayer: function() {
+            return Warlock.game.getPlayers()[this.player_id];
         },
 
         setMove: function(amount) {

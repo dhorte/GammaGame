@@ -66,8 +66,10 @@ exports.units = [
         player_id: 0,
         power: 10,
         powerKind: 'spirit',
-        hp: 20,
-        move: 3,
+        base: {
+            hp: 20,
+            move: 3,
+        },
         actions: [
             {
                 name: 'heal',
@@ -83,8 +85,10 @@ exports.units = [
         player_id: 0,
         power: 8,
         powerKind: 'melee',
-        hp: 16,
-        move: 5,
+        base: {
+            hp: 16,
+            move: 5,
+        },
         damageMod: {
             death: 0.5
         },
@@ -95,8 +99,10 @@ exports.units = [
         player_id: 1,
         power: 8,
         powerKind: 'melee',
-        hp: 24,
-        move: 3,
+        base: {
+            hp: 24,
+            move: 3,
+        },
         resistance: {
             melee: 0.4
         },

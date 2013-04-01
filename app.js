@@ -3,6 +3,7 @@ var express = require('express.io');
 var passport = require('passport');
 
 var Warlock = require('./public/javascripts/warlock-base.js');
+var games = {};
 
 var app = express().http().io();
 
@@ -104,9 +105,6 @@ app.get('/auth/google/return',
 
 
 app.get('/', function(req, res) {
-    // for( key in req ) {
-    //     console.log( key + ' -> ' + req[key] );
-    // }
     req.session.loginDate = new Date().toString();
     console.log('user: ' + req.user);
     res.render('index', { title: 'Warlock', user: req.user });
@@ -121,32 +119,76 @@ app.use(function(req, res, next) {
 app.use(function(req, res, next) {
     console.log('Perform authentication: ', req.method, req.url);
     next();
-});    
+});
 
 // Setup a route for the ready event, and add session data.
 app.io.route('ready', function(req) {
+    var test = require('./data/test.js');
+    var gameId = 0;
+    var gameData = {
+        gameId: gameId,
+        nextId: 0,
+        currentPlayerId: 0,
+        players: test.players,
+        map: test.map,
+        units: test.units,
+    }
+
+    // Create a game and store it in a global dictionary.
+    var game = new Warlock.Game(gameData);
+    games[gameId] = game;
+
+    // Add the game id to the session.
+    req.session.gameId = gameId;
+
+    // Save the session data, and send the game data to the client.
     req.session.save(function() {
-        var test = require('./data/test.js');
-        req.io.emit('load-game', {
-            loginDate: req.session.loginDate,
-            info: req.data,
-            currentPlayerId: 0,
-            players: test.players,
-            map: test.map,
-            units: test.units,
-        });
+        gameData.loginDate = req.session.loginDate;
+        gameData.info = req.data;
+        req.io.emit('load-game', gameData);
     });
 });
 
 app.io.route('attack', function(req) {
+    console.log( 'Received attack command.' );
+
     // Convert data ids into game objects.
+    var game = games[req.session.gameId];
+    var attacker = game.getUnit(req.data.attackerId);
+    var defender = game.getUnit(req.data.defenderId);
+    var action = attacker.getAction(req.data.actionName);
+
+    // Prepare result object.
+    var result = {
+        attacker: {
+            id: req.data.attackerId,
+            hpLost: 0,
+            actionName: req.data.actionName
+        },
+        defender: {
+            id: req.data.defenderId,
+            hpLost: 0,
+            actionName: null
+        },
+    };
+
     // Determine if attack is legal.
+    console.log( 'TODO: determine if attack is legal' );
+
     // Calculate attack damage.
+    result.defender.hpLost = game.calcDamage(attacker, defender, action, true);
+
     // Calculate counter-attack damage, if applicable.
+    if( defender.basicAttack != null && action.getDamageType() == 'melee' ) {
+        result.attacker.hpLost = game.calcDamage(defender, attacker, defender.basicAttack, false);
+        result.defender.actionName = defender.basicAttack.getName();
+    }
+
     // Apply damage to units.
-    // Update unit statuses based on attack effects.
-    // Set attacker movement to zero.
+    game.applyAttackResult(result);
+
     // Notify client of changes to state.
+    req.io.emit('attack-result', result);
 });
 
 /* Start app */

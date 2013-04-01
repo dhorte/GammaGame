@@ -79,7 +79,7 @@
             steps[i].forEach(function(curr) {
                 disc.push(curr);
                 Warlock.game.getMap().getNeighbors(curr).forEach(function(nb) {
-                    if( $.inArray(nb, done) == -1 ) {
+                    if( done.indexOf(nb) == -1 ) {
                         steps[i + 1].push(nb);
                         done.push(nb);
                     }
@@ -108,8 +108,8 @@
             this.moveHexes = [];        // The hexes that the selected unit can move to.
             this.moveRemain = {};       // Cost of moving to this hex from current.
             this.targetHexes = [];      // Hexes that the current unit action can target.
-            // this.blockClick = false;
             this.actionButtons = [];
+            this.currentAction = null;
 
             this._initElems();          // All of the KineticJS objects used for rendering
             this._initMap();
@@ -119,6 +119,8 @@
                 unit.initializeUI();
                 unit.hex.ui.elem.add(unit.ui.elem);
             });
+
+            this.game.addListener(this);
 
             this.redraw();
         },
@@ -151,25 +153,6 @@
             // the hexes, terrains, units, cities, etc.
             // All nodes on the map layer are added when the map and units are loaded.
             this.elems.mapLayer = new Kinetic.Layer();
-
-            // These should not be needed.
-            // this.elems.mapLayer.on('dragstart', function(event) {
-            //     this.dragDist = 0;
-            //     this.dragX = event.x;
-            //     this.dragY = event.y;
-            // });
-            // this.elems.mapLayer.on('dragmove', function(event) {
-            //     var dx = event.x - this.dragX;
-            //     var dy = event.y - this.dragY;
-            //     this.dragDist += Math.sqrt( dx * dx + dy * dy );
-            //     this.dragX = event.x;
-            //     this.dragY = event.y;
-
-            //     if( this.dragDist > 2 ) {
-            //         Warlock.blockClick = true;
-            //     }
-            // });
-
 
             // INFO LAYER
             // Contains all information that users need which is not contained on the map
@@ -237,9 +220,35 @@
             this.elems.stage.add(this.elems.infoLayer);
         },
 
-            /**
-             * Redraw all layers.
-             */
+        receive: function(eventName, data) {
+            switch(eventName) {
+
+            case 'attack-result':
+                var attacker = this.game.getUnit(data.attacker.id);
+                var defender = this.game.getUnit(data.defender.id);
+                Messages.println(
+                    sprintf('%(att)s %(attDam).1f -> VS <- %(defDam).1f %(def)s', {
+                        att: attacker.name,
+                        attDam: data.defender.hpLost,
+                        def: defender.name,
+                        defDam: data.attacker.hpLost
+                    })
+                );
+                break;
+
+            case 'unit-death':
+                Message.println( data.name + ' has died.' );
+                break;
+
+            case 'unit-removed':
+                data.ui.elem.remove();
+                break;
+            }
+        },
+
+        /**
+         * Redraw all layers.
+         */
         redraw: function() {
             this.elems.mapLayer.draw();
             this.elems.infoLayer.draw();
@@ -259,7 +268,7 @@
         },
 
         setActionButtons: function(unit) {
-            var gameRef = this;
+            var uiRef = this;
             var actions = unit.actions;
 
             this.clearActionButtons();
@@ -267,8 +276,8 @@
             for( var i = 0; i < actions.length; i++ ) {
                 (function() {
                     var action = actions[i];
-                    var rect = gameRef._uiRect({
-                        width: gameRef.elems.unitInfoRect.getWidth(),
+                    var rect = uiRef._uiRect({
+                        width: uiRef.elems.unitInfoRect.getWidth(),
                         height: 30
                     });
                     var text = new Kinetic.Text({
@@ -283,23 +292,25 @@
                     var group = new Kinetic.Group({
                         opacity: 0.8,
                         x: 1,
-                        y: gameRef.elems.unitInfoGroup.getY() - (rect.getHeight() * (actions.length - i))
+                        y: uiRef.elems.unitInfoGroup.getY() - (rect.getHeight() * (actions.length - i))
                     });
                     group.on('mouseenter', function(event) {
                         group.setOpacity(1.0);
-                        gameRef.elems.infoLayer.draw();
+                        uiRef.elems.infoLayer.draw();
                     });
                     group.on('mouseleave', function(event) {
                         group.setOpacity(0.8);
-                        gameRef.elems.infoLayer.draw();
+                        uiRef.elems.infoLayer.draw();
                     });
                     group.on('click', function(event) {
-                        Warlock.startAction(unit, action);
+                        if( unit.getPlayer() == uiRef.game.getCurrentPlayer() ) {
+                            Warlock.startAction(unit, action);
+                        }
                     });
                     group.add(rect);
                     group.add(text);
-                    gameRef.actionButtons.push(group);
-                    gameRef.elems.infoLayer.add(group);
+                    uiRef.actionButtons.push(group);
+                    uiRef.elems.infoLayer.add(group);
                 })();
             }
         },
@@ -352,6 +363,8 @@
 
         unselectUnit: function() {
             this.clearMoveOutlines();
+            this.clearTargetOutlines();
+            this.clearActionButtons();
             this.selectedUnit = null;
             this.moveHexes = [];
             this.moveRemain = {};
@@ -396,7 +409,7 @@
             var canMove =
                 unit != null &&
                 unit.getPlayer() == Warlock.game.getCurrentPlayer() &&
-                $.inArray(destHex, this.moveHexes) >= 0;
+                this.moveHexes.indexOf(destHex) >= 0;
 
             if( canMove ) {
                 unit.setMove(this.moveRemain[destHex.getHashKey()]);
@@ -446,6 +459,8 @@
 (function( Warlock, undefined ) {
 
     Warlock.startAction = function(unit, action) {
+        console.assert( Warlock.ui.selectedUnit == unit );
+
         if( unit.getMove() <= 0 ) {
             Messages.println( unit.name + ' does not have enough movement to perform ' + action.getName() );
             return;
@@ -476,8 +491,7 @@
 
         Warlock.ui.showTargetOutlines(color);
         if( Warlock.ui.targetHexes.length > 0 ) {
-            console.assert( Warlock.ui.selectedUnit == unit );
-            Warlock.currentAction = action;
+            Warlock.ui.currentAction = action;
             Warlock.ui.redraw();
         }
     };
@@ -487,50 +501,31 @@
      * @param amount Number amount of damage to apply
      * @param source String for output message, the cause of the damage
      */
-    Warlock.applyDamage = function(unit, amount, source) {
+    Warlock.applyDamage = function(unit, amount) {
         unit.current.hp -= amount;
         if( unit.current.hp <= 0 ) {
             Messages.println(unit.name + ' has died.');
         };
     };
 
-    Warlock.doAttack = function(attacker, action, defender) {
-        var attackerDamage = Warlock.game.calcDamage(attacker, defender, action, true);
-        var defenderDamage = 0;
-        if( defender.basicAttack != null && action.getDamageType() == 'melee' ) {
-            defenderDamage = Warlock.game.calcDamage(defender, attacker, defender.basicAttack, false);
-        }
-
-        Messages.println(
-            sprintf('%(att)s %(attDam).1f -> VS <- %(defDam).1f %(def)s', {
-                att: attacker.name, 
-                attDam: attackerDamage,
-                def: defender.name,
-                defDam: defenderDamage
-            })
-        );
-
-        Warlock.applyDamage(defender, attackerDamage, attacker.name);
-        Warlock.applyDamage(attacker, defenderDamage, defender.name);
-        attacker.setMove(0); // Attacking uses all of a units movement points.
-
-        Warlock.ui.selectUnit(attacker);
-        Warlock.ui.updateSecondaryUnitStats(defender);
-    };
-
     Warlock.executeAction = function(targetHex) {
-        console.log( "Executing action: " + Warlock.currentAction.getName() );
+        console.log( "Executing action: " + Warlock.ui.currentAction.getName() );
 
-        if( Warlock.currentAction == null ) {
+        if( Warlock.ui.currentAction == null ) {
             console.log( "null current action" );
             return;
         }
 
         console.assert( Warlock.ui.selectedUnit != null );
 
-        switch(Warlock.currentAction.getKind()) {
+        switch(Warlock.ui.currentAction.getKind()) {
         case 'attack':
-            Warlock.doAttack(Warlock.ui.selectedUnit, Warlock.currentAction, targetHex.getUnit() );
+            Warlock.socket.emit( 'attack', {
+                gameId: Warlock.game.getId(),
+                attackerId: Warlock.ui.selectedUnit.getId(),
+                defenderId: targetHex.getUnit().getId(),
+                actionName: Warlock.ui.currentAction.getName(),
+            });
             break;
         case 'heal':
             console.log( "Heal action." );
@@ -539,11 +534,6 @@
             console.log( "Unknown action." );
             break;
         }
-
-        Warlock.currentAction = null;
-        Warlock.ui.clearTargetOutlines();
-        Warlock.ui.selectUnit(Warlock.ui.selectedUnit);
-        Warlock.ui.redraw();
     };
 
 })( window.Warlock = window.Warlock || {} );
@@ -628,7 +618,7 @@
 
             /* Execute action on this target. */
             if (event.which == Warlock.RIGHT_CLICK &&
-                     $.inArray(hexRef, Warlock.ui.targetHexes) >= 0
+                Warlock.ui.targetHexes.indexOf(hexRef) >= 0
             ) {
                 Warlock.executeAction(hexRef);
             }
@@ -636,20 +626,22 @@
             else if( hexRef.getUnit() != null ) {
                 if( event.which == Warlock.LEFT_CLICK ) {
                     Warlock.ui.selectUnit(hexRef.getUnit());
+                    Warlock.ui.redraw();
                 }
             }
 
             else {
                 if( event.which == Warlock.LEFT_CLICK ) {
                     Warlock.ui.unselectUnit();
+                    Warlock.ui.redraw();
                 }
 
                 else if( event.which == Warlock.RIGHT_CLICK ) {
                     Warlock.ui.moveSelectedUnit(hexRef);
+                    Warlock.ui.redraw();
                 }
             }
 
-            Warlock.ui.redraw();
         });
 
         this.ui.outline = function(config) {
@@ -747,6 +739,14 @@ $(document).ready(function() {
             
             // begin downloading images 
             Warlock.loader.start();     
+        });
+
+        Warlock.socket.on('attack-result', function(data) {
+            Warlock.game.applyAttackResult(data);
+            Warlock.ui.currentAction = null;
+            Warlock.ui.clearTargetOutlines();
+            Warlock.ui.selectUnit(Warlock.ui.selectedUnit);
+            Warlock.ui.redraw();
         });
 
     })( window.Warlock = window.Warlock || {} );
