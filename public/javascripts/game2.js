@@ -610,38 +610,30 @@
             }
         });
         this.ui.elem.on('click', function(event) {
-            // if( Warlock.ui.blockClick ) {
-            //     console.log( 'blockClick' );
-            //     Warlock.ui.blockClick = false;
-            //     return;
-            // }
-
-            /* Execute action on this target. */
-            if (event.which == Warlock.RIGHT_CLICK &&
-                Warlock.ui.targetHexes.indexOf(hexRef) >= 0
-            ) {
-                Warlock.executeAction(hexRef);
-            }
-
-            else if( hexRef.getUnit() != null ) {
-                if( event.which == Warlock.LEFT_CLICK ) {
+            // LEFT CLICK
+            if( event.which == Warlock.LEFT_CLICK ) {
+                if( hexRef.getUnit() != null ) {
                     Warlock.ui.selectUnit(hexRef.getUnit());
                     Warlock.ui.redraw();
                 }
-            }
 
-            else {
-                if( event.which == Warlock.LEFT_CLICK ) {
+                else if( Warlock.ui.selectedUnit != null ) {
                     Warlock.ui.unselectUnit();
                     Warlock.ui.redraw();
                 }
+            }
+            
+            // RIGHT CLICK
+            else if( event.which == Warlock.RIGHT_CLICK ) {
+                if( Warlock.ui.targetHexes.indexOf(hexRef) >= 0 ) {
+                    Warlock.executeAction(hexRef);
+                }
 
-                else if( event.which == Warlock.RIGHT_CLICK ) {
+                else if( Warlock.ui.moveHexes.indexOf(hexRef) >= 0 ) {
                     Warlock.ui.moveSelectedUnit(hexRef);
                     Warlock.ui.redraw();
                 }
             }
-
         });
 
         this.ui.outline = function(config) {
