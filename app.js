@@ -191,6 +191,24 @@ app.io.route('attack', function(req) {
     req.io.emit('attack-result', result);
 });
 
+app.io.route('move', function(req) {
+    console.log('Received move command.');
+
+    var game = games[req.session.gameId];
+    var unit = game.getUnit(req.data.unitId);
+    unit.dest = game.getMap().hexes[req.data.dest.row][req.data.dest.col];
+
+    var result = game.generateMoveResult(unit);
+    
+    if( result.error == null ) {
+        // Move the unit.
+        game.applyMoveResult(result);
+    }
+
+    // Notify client of changes to state.
+    req.io.emit('move-result', result);
+});
+
 /* Start app */
 app.listen(app.get('port'), function() {
     console.log("Express server listening on port " + app.get('port'))

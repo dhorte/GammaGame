@@ -63,7 +63,7 @@ exports.players = [
 exports.units = [
     {
         name: 'shamans',
-        player_id: 0,
+        playerId: 0,
         power: 10,
         powerKind: 'spirit',
         base: {
@@ -82,7 +82,7 @@ exports.units = [
     },
     {
         name: 'ratmen',
-        player_id: 0,
+        playerId: 0,
         power: 8,
         powerKind: 'melee',
         base: {
@@ -96,7 +96,7 @@ exports.units = [
     },
     {
         name: 'warriors',
-        player_id: 1,
+        playerId: 1,
         power: 8,
         powerKind: 'melee',
         base: {

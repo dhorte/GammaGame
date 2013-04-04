@@ -139,7 +139,7 @@
                 map: new Warlock.Map(config.map),
                 players: [],
                 units: [],
-                currentPlayerIndex: config.currentPlayerIndex || 0,
+                currentPlayerId: config.currentPlayerId || 0,
             };
 
             /* Load the players. */
@@ -155,10 +155,6 @@
 
         _newId: function() {
             return this._nextId++;
-        },
-
-        getId: function() {
-            return this._id;
         },
 
         serialize: function() {
@@ -203,32 +199,36 @@
 
         addUnit: function(unitConfig) {
             if( unitConfig !== undefined ) {
-                var hex = this.attrs.map.hexes[unitConfig.pos.row][unitConfig.pos.col];
                 var unit = new Warlock.Unit(unitConfig);
 
                 if( unit._id == Warlock.Global.NULL_ID ) {
                     unit._id = this._newId();
                 }
 
-                console.assert(hex !== undefined);
-                console.assert(unit.hex == null);
-                console.assert(hex.getUnit() == null);
-
+                /* Unit's position. Requires hexes, which Unit cannot access. */
+                var hex = this.getMap().hexes[unitConfig.pos.row][unitConfig.pos.col];
                 this.attrs.units.push(unit);
                 unit.hex = hex;
                 hex.setUnit(unit);
+
+                /* Unit's destination. Requires hexes, which Unit cannot access. */
+                if( unitConfig.dest === undefined ) {
+                    unit.dest = unit.hex;
+                }
+                else {
+                    var dest = this.getMap().hexes[unitConfig.dest.row][unitConfig.dest.col];
+                    unit.dest = dest;
+                }
             }
         },
 
         advancePlayer: function() {
-            this.attrs.currentPlayerIndex += 1;
-            if( this.attrs.currentPlayerIndex >= players.length ) {
-                this.attrs.currentPlayerIndex = 0;
+            this.attrs.currentPlayerId += 1;
+            if( this.attrs.currentPlayerId >= players.length ) {
+                this.attrs.currentPlayerId = 0;
             }
         },
 
-        /*
-         */
         applyAttackResult: function(result) {
             var attacker = this.getUnit(result.attacker.id);
             var defender = this.getUnit(result.defender.id);
@@ -250,16 +250,13 @@
             }
         },
 
-        removeUnit: function(unit) {
-            // Remove from array of all units.
-            var index = this.units.indexOf(unit);
-            console.assert( index >= 0 );
-            this.units = this.units.splice(index, 1);
-            
-            // Remove from hex.
-            unit.hex.unit = null;
-
-            notify('unit-removed', unit);
+        applyMoveResult: function(result) {
+            var hexes = this.getMap().hexes;
+            var unit = this.getUnit(result.unitId);
+            unit.dest = hexes[result.dest.row][result.dest.col];
+            unit.moveToHex(hexes[result.terminator.row][result.terminator.col]);
+            unit.setMove(result.move);
+            this.notify('unit-move', result);
         },
 
         /**
@@ -300,17 +297,107 @@
         },
 
         endTurn: function() {
-            Warlock.units.forEach(function(unit) {
-                if( unit.getPlayer() == Warlock.currentPlayer ) {
-                    unit.setMove(unit.base.move);
-                }
-            });
+            console.log( 'TODO: implement endTurn' );
+            // Warlock.units.forEach(function(unit) {
+            //     if( unit.playerId == Warlock.currentPlayer ) {
+            //         unit.setMove(unit.base.move);
+            //     }
+            // });
 
-            this.advancePlayer();
+            // this.advancePlayer();
+        },
+
+        generatePath: function(unit, dest) {
+
+            // Find the shortest path based on the cameFrom data.
+            var reconstructPath = function(cameFrom, current) {
+                // console.log( 'Reconstructing from: ' + current.getName() );
+
+                if( current.getHashKey() in cameFrom ) {
+                    var path = reconstructPath(cameFrom, cameFrom[current.getHashKey()]);
+                    path.push(current);
+                    return path;
+                }
+                else {
+                    return [current];
+                }
+            };
+
+            var openSet = [unit.hex]; // The set of nodes to explore.
+            var cameFrom = {};        // Map of navigated nodes.
+
+            var startHash = unit.hex.getHashKey();
+
+            // Cost from start along best known path.
+            var gScore = {};
+            gScore[startHash] = 0;
+            // Estimated total cost from start to goal through y.
+            var fScore = {};
+            fScore[startHash] = unit.hex.dist(dest);
+
+            // Return the hex in openSet with the lowest fScore.
+            var getNext = function() {
+                var winner = openSet[0];
+                var index = 0;
+                var winnerF = fScore[winner.getHashKey()];
+
+                for( var i = 1; i < openSet.length; i++ ) {
+                    var f = fScore[openSet[i].getHashKey()];
+                    if( f < winnerF ) {
+                        winner = openSet[i];
+                        index = i;
+                        winnerF = f;
+                    }
+                }
+
+                return winner;
+            }
+            
+            var stepCount = 0;  // For testing purposes only.
+            while( openSet.length > 0 && stepCount < 30 ) {
+                stepCount += 1;
+
+                var current = getNext();
+                // console.log( "A-star step " + stepCount + ' ' + current.getName() );
+                if( current == dest ) {
+                    // console.log( "cameFrom" );
+                    // for( key in cameFrom ) {
+                    //     console.log( '  ' + key + ' <- ' + cameFrom[key].getName() );
+                    // }
+                    delete cameFrom[unit.hex.getHashKey()];
+                    return reconstructPath(cameFrom, dest);
+                }
+
+                openSet.splice(openSet.indexOf(current), 1);
+                this.getMap().getNeighbors(current).forEach(function(nb) {
+                    tentativeGScore = gScore[current.getHashKey()] + unit.moveCost(current, nb);
+                    // console.log( '  ' + nb.getName() + ' ' + tentativeGScore );
+                    var isOpen = openSet.indexOf(nb) >= 0;
+                    var nbKey = nb.getHashKey();
+
+                    if( tentativeGScore >= gScore[nbKey] ) {}
+                    else if( ! isOpen || tentativeGScore < gScore[nbKey] ) {
+                        cameFrom[nbKey] = current;
+                        gScore[nbKey] = tentativeGScore;
+                        fScore[nbKey] = gScore[nbKey] + unit.moveCost(nb, dest);
+                        if( !isOpen ) {
+                            openSet.push(nb);
+                        }
+                    }
+                });
+
+                // console.log( 'open' );
+                // openSet.forEach(function(hex) {
+                //     var key = hex.getHashKey();
+                //     console.log( '  ' + hex.getName() + ' g=' + gScore[key] + ' f=' + fScore[key] + ' from=' + cameFrom[key].getName() );
+                // });
+            }
+
+            console.log( 'A* failed to find a path.' );
         },
 
         getCurrentPlayer: function() {
-            return this.attrs.players[this.attrs.currentPlayerIndex];
+            return this.attrs.players[this.attrs.currentPlayerId];
         },
 
         /**
@@ -323,6 +410,10 @@
          * @return Array of Warlock.Player
          */
 
+        getId: function() {
+            return this._id;
+        },
+
         getUnit: function(id) {
             var units = this.getUnits();
             for( i in units ) {
@@ -331,6 +422,73 @@
                 }
             }
             return null;
+        },
+
+        /**
+         * getUnits()
+         * @return Array of Warlock.Unit
+         */
+
+        /**
+         * generateMoveResult(unit)
+         * @param unit Warlock.Unit
+         *
+         * Create a serialized move result object that can be processed by applyMoveResult
+         * and transmitted smoothly from the server to the client for application
+         * client side.
+         */
+        generateMoveResult: function(unit) {
+            var result = {
+                unitId: unit.getId(),
+                dest: unit.dest.getPos(),
+                move: unit.getMove(),
+                terminator: null,
+                path: null,
+                error: null
+            };
+
+            if( unit.playerId != this.getCurrentPlayerId() ) {
+                result.error = "It is not this player's turn to move.";
+                return result;
+            }
+            else {
+                var path = this.generatePath(unit, unit.dest);
+
+                if( path.length == 0 ) {
+                    return { error: 'No path found to destination.' };
+                }
+
+                // The first hex in the path is the unit's current position.
+                else if( path.length == 1 ) {
+                    result.terminator = unit.hex.getPos();
+                    result.path = [path[0].getPos()];
+                    return result;
+                }
+
+                // Some actual movement can take place.
+                else if( path.length > 1 ) {
+
+                    // Figure out how many movement points were used up.
+                    var i = 1;
+                    var moveCost = unit.moveCost(path[i]);
+                    while( i < path.length && moveCost <= result.move ) {
+                        result.move -= moveCost;
+                        i++;
+                    }
+
+                    // Push the actual path travelled into the result.
+                    result.path = [];
+                    path.splice(i);
+                    path.forEach(function(hex) {
+                        result.path.push(hex.getPos());
+                    });
+
+                    // Mark the final position of the unit.
+                    result.terminator = result.path[result.path.length - 1];
+
+                    return result;
+                }
+            }
         },
 
         /**
@@ -347,10 +505,17 @@
             });
         },
 
-        /**
-         * getUnits()
-         * @return Array of Warlock.Unit
-         */
+        removeUnit: function(unit) {
+            // Remove from array of all units.
+            var index = this.units.indexOf(unit);
+            console.assert( index >= 0 );
+            this.units = this.units.splice(index, 1);
+            
+            // Remove from hex.
+            unit.hex.unit = null;
+
+            notify('unit-removed', unit);
+        },
 
         /**
          * unitMovement(unit)
@@ -430,7 +595,7 @@
         },
     };
 
-    Warlock.Global.addGetters(Warlock.Game, ['players', 'units', 'map']);
+    Warlock.Global.addGetters(Warlock.Game, ['players', 'units', 'map', 'currentPlayerId']);
 
     /* Class for players. */
     Warlock.Player = function(config) {
@@ -454,6 +619,10 @@
                 id: playerRef._id,
                 color: playerRef.color
             };
+        },
+
+        getId: function() {
+            return this._id;
         },
     };
 
@@ -547,6 +716,10 @@
             return nbs;
         },
 
+        getHex: function(pos) {
+            return this.hexes[pos.row][pos.col];
+        },
+
         getNeighbors: function(hex) {
             if( hex._neighbors == null ) {
                 hex._neighbors = this.calcNeighbors(hex);
@@ -633,6 +806,24 @@
         },
 
         /**
+         * dist(other)
+         * @param other Warlock.Hex
+         * @return Int
+         *
+         * Calculate the distance between this hex and the other hex.
+         */
+        dist: function(other) {
+            var sign = function(x) { return x ? x < 0 ? -1 : 1 : 0; }
+
+            var dx = other.attrs.row - this.attrs.row;
+            var dy = other.attrs.diag - this.attrs.diag;
+
+            
+            if( sign(dx) == sign(dy) ) return Math.abs(dx + dy)
+            else return Math.max(Math.abs(dx), Math.abs(dy))            
+        },
+
+        /**
          * getCol()
          * @return Int
          */
@@ -661,7 +852,19 @@
          * @return String
          */
         getName: function() {
-            return this.hashKey;
+            return this.attrs.hashKey;
+        },
+
+        /**
+         * getPos()
+         * @return { row: this.getRow(), col: this.getCol() }
+         */
+        getPos: function() {
+            var hexRef = this;
+            return {
+                row: hexRef.getRow(),
+                col: hexRef.getCol()
+            };
         },
 
         /**
@@ -740,19 +943,20 @@
             /* Required for object creation. */
             this.base = config.base;
             this.name = config.name;
-            this.player_id = config.player_id;
+            this.playerId = config.playerId;
             this.power = config.power;
             this.powerKind = config.powerKind;
 
             /* Optional values with defaults. */
             this._id = config.id || Warlock.Global.NULL_ID;
-            this.hex = null;
+            this.hex = null;   // Warlock.Hex
+            this.dest = null;  // Warlock.Hex
             this.type = 'Unit';
             this.powerMod = config.powerMod || 0;
             this.damageMod = Warlock.Global.damageDict(config.damageMod);
             this.resistance = Warlock.Global.damageDict(config.resistance);
             this.flying = config.flying || false;
-            this.basicAttack = null;
+            this.basicAttack = null;  // Warlock.Action
 
             /* Create a basic attack for this unit, based on its power. */
             if( config.power > 0 && !config.noAttack ) {
@@ -802,7 +1006,7 @@
             return {
                 id: self._id,
                 name: self.name,
-                player_id: self.player_id,
+                playerId: self.playerId,
                 power: self.power,
                 powerKind: self.powerKind,
                 powerMod: self.powerMod,
@@ -815,7 +1019,11 @@
                 actions: actionArray,
                 resistance: self.resistance,
                 damageMod: self.damageMod,
-                flying: self.flying
+                flying: self.flying,
+                dest: {
+                    row: self.dest.row,
+                    col: self.dest.col
+                }
             };
         },
 
@@ -836,10 +1044,6 @@
             return this.current.move;
         },
 
-        getPlayer: function() {
-            return Warlock.game.getPlayers()[this.player_id];
-        },
-
         setMove: function(amount) {
             console.assert(amount >= 0);
             console.assert(amount <= this.base.move);
@@ -852,7 +1056,7 @@
         },
 
         moveCost: function(hex) {
-            if( hex.getUnit() != null && hex.getUnit().getPlayer() != this.getPlayer() ) {
+            if( hex.getUnit() != null && hex.getUnit().playerId != this.playerId ) {
                 return Number.MAX_VALUE;
             }
             else if( this.flying ) {
