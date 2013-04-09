@@ -38,6 +38,7 @@
 
     /* GLOBAL VARIABLES. */
     Warlock.game = null;
+    Warlock.myPlayerId = -1;
 
 })( window.Warlock = window.Warlock || {} );
 
@@ -208,10 +209,9 @@
             this.elems.endTurnGroup.add(this.elems.endTurnText);
             this.elems.infoLayer.add(this.elems.endTurnGroup);
             this.elems.endTurnGroup.on('click', function(event) {
-                $.get("/endturn", function(string) {
-                    alert(string)
-                    Warlock.endTurn();
-                })            
+                if( Warlock.myPlayerId == Warlock.game.getCurrentPlayerId() ) {
+                    Warlock.socket.emit('end-turn');
+                }
             });
 
 
@@ -225,8 +225,8 @@
             var map = this.game.getMap();
             var stage = this.elems.stage;
 
-            var mapHeight = (map.rows * Warlock.HEX_RAD * 3 / 2) + (Warlock.HEX_RAD / 2);
-            var mapWidth = map.cols * Warlock.HEX_WIDTH;
+            var mapHeight = (map.getRows() * Warlock.HEX_RAD * 3 / 2) + (Warlock.HEX_RAD / 2);
+            var mapWidth = map.getCols() * Warlock.HEX_WIDTH;
             
             /* Add the background for the map. */
             this.elems.background = new Kinetic.Rect({
@@ -240,9 +240,10 @@
             this.elems.mapLayer.add(this.elems.background);
 
             /* Add the hexes from the map to the mapLayer. */
-            for( row in map.hexes ) {
-                for( col in map.hexes[row] ) {
-                    var hex = map.hexes[row][col];
+            var hexes = map.getHexes()
+            for( var row in hexes ) {
+                for( var col in hexes[row] ) {
+                    var hex = hexes[row][col];
                     hex.initializeUI();
                     this.elems.mapLayer.add(hex.ui.elem);
                 }
@@ -268,7 +269,7 @@
         },
 
         clearMoveOutlines: function() {
-            for( i in this.moveHexes ) {
+            for( var i in this.moveHexes ) {
                 this.moveHexes[i].ui.outline(false);
             }
         },
@@ -340,7 +341,7 @@
             this.moveRemain = movement.remain;
 
             // Display possible movement.
-            for( i in this.moveHexes ) {
+            for( var i in this.moveHexes ) {
                 var hex = this.moveHexes[i];
                 var finalMove = this.moveRemain[hex.getHashKey()] <= 0;
                 var activeUnit = this.selectedUnit.playerId == this.game.getCurrentPlayerId();
@@ -422,6 +423,7 @@
             this.selectedUnit = null;
             this.moveHexes = [];
             this.moveRemain = {};
+            this.targetHexes = [];
             this.clearUnitDetails();
         },
 
@@ -496,6 +498,11 @@
 
     Warlock.executeAction = function(targetHex) {
         console.log( "Executing action: " + Warlock.ui.currentAction.getName() );
+
+        if( Warlock.game.getCurrentPlayerId() != Warlock.myPlayerId ) {
+            Messages.println( 'Cannot execute actions when it is not your turn.' );
+            return;
+        }
 
         if( Warlock.ui.currentAction == null ) {
             console.log( "null current action" );
@@ -623,6 +630,11 @@
 
                 // Move the currently selected unit.
                 else if( Warlock.ui.moveHexes.indexOf(hexRef) >= 0 ) {
+                    if( Warlock.myPlayerId != Warlock.game.getCurrentPlayerId() ) {
+                        Messages.println( "Can't move units when it is not your turn." );
+                        return;
+                    }
+
                     Warlock.ui.selectedUnit.dest = hexRef;
                     Warlock.socket.emit('move', {
                         unitId: Warlock.ui.selectedUnit.getId(),
@@ -676,12 +688,15 @@
         var unitRef = this;
         var getColor = function() {
             var players = Warlock.game.getPlayers();
-            for( i in players ) {
-                if( players[i].getId() == unitRef.playerId ) {
-                    return players[i].color;
-                }
+            var playerId = unitRef.playerId;
+            var color = players[playerId].getColor();
+
+            if( color === undefined ) {
+                console.assert( false, 'Could not get a valid color for unit elem.' );
             }
-            console.assert( "Couldn't find my player." );
+            else {
+                return color;
+            }
         };
 
         this.ui.elem = new Kinetic.Circle({
@@ -735,7 +750,10 @@ $(document).ready(function() {
                 console.log( 'Resources loaded.' );
                 console.log( 'Starting game.' );
                 Warlock.game = new Warlock.Game(data);
+                Warlock.myPlayerId = data.yourPlayerId;
                 Warlock.ui = new Warlock.UI(Warlock.game);
+                Messages.println( 'You are player ' + Warlock.myPlayerId );
+                Messages.println( 'It is player ' + Warlock.game.getCurrentPlayerId() + "'s turn." );
             }); 
             
             // begin downloading images 
@@ -758,6 +776,19 @@ $(document).ready(function() {
             else {
                 Warlock.game.applyMoveResult(data);
                 Warlock.ui.redraw();
+            }
+        });
+
+        Warlock.socket.on('end-turn-result', function(data) {
+            Messages.println('Received end-turn-result message from socket.');
+            if( data.error == null || data.error === undefined ) {
+                Warlock.game.applyEndTurnResult(data);
+                Warlock.ui.unselectUnit();
+                Messages.println('It is now player ' + Warlock.game.getCurrentPlayerId() + "'s turn.");
+                Warlock.ui.redraw();
+            }
+            else {
+                Messages.println(data.error);
             }
         });
 

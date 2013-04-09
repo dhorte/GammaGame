@@ -3,7 +3,23 @@ var express = require('express.io');
 var passport = require('passport');
 
 var Warlock = require('./public/javascripts/warlock-base.js');
+
 var games = {};
+var players = 0;
+
+var test = require('./data/test.js');
+
+// Create a game and store it in a global dictionary.
+games[1] = new Warlock.Game({
+    gameId: 1,                 // Don't use 0 for ids.
+    nextId: 1,                 // Don't use 0 for ids.
+    currentPlayerId: 1,        // Don't use 0 for ids.
+    players: test.players,
+    map: test.map,
+    units: test.units
+});
+
+
 
 var app = express().http().io();
 
@@ -123,29 +139,25 @@ app.use(function(req, res, next) {
 
 // Setup a route for the ready event, and add session data.
 app.io.route('ready', function(req) {
-    var test = require('./data/test.js');
-    var gameId = 0;
-    var gameData = {
-        gameId: gameId,
-        nextId: 0,
-        currentPlayerId: 0,
-        players: test.players,
-        map: test.map,
-        units: test.units,
-    }
 
-    // Create a game and store it in a global dictionary.
-    var game = new Warlock.Game(gameData);
-    games[gameId] = game;
+    players += 1;
+    var gameId = 1;
+    var yourPlayerId = players;
 
     // Add the game id to the session.
     req.session.gameId = gameId;
+    req.session.playerId = yourPlayerId;
+
+    // Grab the game.
+    var game = games[req.session.gameId];
 
     // Save the session data, and send the game data to the client.
     req.session.save(function() {
-        gameData.loginDate = req.session.loginDate;
-        gameData.info = req.data;
-        req.io.emit('load-game', gameData);
+        var data = game.serialize();
+        data.loginDate = req.session.loginDate;
+        data.info = req.data;
+        data.yourPlayerId = yourPlayerId;
+        req.io.emit('load-game', data);
     });
 });
 
@@ -196,7 +208,7 @@ app.io.route('move', function(req) {
 
     var game = games[req.session.gameId];
     var unit = game.getUnit(req.data.unitId);
-    unit.dest = game.getMap().hexes[req.data.dest.row][req.data.dest.col];
+    unit.dest = game.getMap().getHexes()[req.data.dest.row][req.data.dest.col];
 
     var result = game.generateMoveResult(unit);
     
@@ -207,6 +219,37 @@ app.io.route('move', function(req) {
 
     // Notify client of changes to state.
     req.io.emit('move-result', result);
+});
+
+app.io.route('end-turn', function(req) {
+    console.log('Received endturn.');
+
+    var game = games[req.session.gameId];
+
+    // Make sure that this player is the current player.
+    if( game.getCurrentPlayerId() != req.session.playerId ) {
+        req.io.emit('end-turn-result', {
+            error: 'It is not your turn.'
+        });
+        return;
+    }
+
+    // Generate end turn data.
+    var result = {
+        currentPlayerId: game.nextPlayer(),
+    };
+
+    // Apply end turn to the game.
+    game.applyEndTurnResult(result);
+
+    // Acknowledge end turn for this player.
+    req.io.emit('end-turn-result', result);
+
+    // NOTE: This might be in the load game function.
+    // Check if the next player is currently connected and looking at this game.
+    // If yes, send him the new game info.
+    // Compile new turn data for next player.
+    // Send next player new turn data.
 });
 
 /* Start app */

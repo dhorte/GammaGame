@@ -1,4 +1,3 @@
-// var Warlock = require('./warlock.js');
 var Warlock = require('../public/javascripts/warlock-base.js');
 
 exports.map = (function() {
@@ -56,14 +55,14 @@ exports.map = (function() {
 })();
 
 exports.players = [
-    { id: 0, color: 'red' },
-    { id: 1, color: 'blue' },
+    { id: 1, color: 'red' },
+    { id: 2, color: 'blue' },
 ];
 
 exports.units = [
     {
         name: 'shamans',
-        playerId: 0,
+        playerId: 1,
         power: 10,
         powerKind: 'spirit',
         base: {
@@ -82,7 +81,7 @@ exports.units = [
     },
     {
         name: 'ratmen',
-        playerId: 0,
+        playerId: 1,
         power: 8,
         powerKind: 'melee',
         base: {
@@ -96,7 +95,7 @@ exports.units = [
     },
     {
         name: 'warriors',
-        playerId: 1,
+        playerId: 2,
         power: 8,
         powerKind: 'melee',
         base: {

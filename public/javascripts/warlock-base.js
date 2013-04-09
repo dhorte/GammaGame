@@ -35,6 +35,8 @@
 })();
 
 (function(Warlock) {
+    "use strict";
+
     Warlock.Global = {
         NULL_ID: -1,
 
@@ -89,7 +91,7 @@
                 elemental: 0
             };
 
-            for( key in modifiers ) {
+            for( var key in modifiers ) {
                 base[key] = modifiers[key];
             }
 
@@ -137,18 +139,18 @@
 
             this.attrs = {
                 map: new Warlock.Map(config.map),
-                players: [],
+                players: {},
                 units: [],
-                currentPlayerId: config.currentPlayerId || 0,
+                currentPlayerId: config.currentPlayerId || 1,
             };
 
             /* Load the players. */
-            for( i in config.players ) {
+            for( var i in config.players ) {
                 this.addPlayer(config.players[i]);
             }
 
             /* Load the units. */
-            for( i in config.units ) {
+            for( var i in config.units ) {
                 this.addUnit(config.units[i]);
             }
         },
@@ -160,10 +162,11 @@
         serialize: function() {
             var gameRef = this;
 
-            var playersArray = [];
-            this.getPlayers().forEach(function(player) {
-                playersArray.push(player.serialize());
-            });
+            var playersDict = {};
+            var players = this.getPlayers();
+            for( var key in players ) {
+                playersDict[key] = players[key].serialize();
+            }
 
             var unitsArray = [];
             this.getUnits().forEach(function(unit) {
@@ -175,8 +178,8 @@
                 nextId: gameRef._nextId,
                 currentPlayerId: gameRef.attrs.currentPlayerId,
                 map: gameRef.attrs.map.serialize(),
-                players: playersArray,
-                units: unitsArray
+                players: playersDict,
+                units: unitsArray,
             }
         },
 
@@ -193,7 +196,7 @@
                 if( player._id == Warlock.Global.NULL_ID ) {
                     player._id = this._newId();
                 }
-                this.attrs.players.push(player);
+                this.attrs.players[player.getId()] = player;
             }
         },
 
@@ -206,7 +209,7 @@
                 }
 
                 /* Unit's position. Requires hexes, which Unit cannot access. */
-                var hex = this.getMap().hexes[unitConfig.pos.row][unitConfig.pos.col];
+                var hex = this.getMap().getHexes()[unitConfig.pos.row][unitConfig.pos.col];
                 this.attrs.units.push(unit);
                 unit.hex = hex;
                 hex.setUnit(unit);
@@ -216,16 +219,9 @@
                     unit.dest = unit.hex;
                 }
                 else {
-                    var dest = this.getMap().hexes[unitConfig.dest.row][unitConfig.dest.col];
+                    var dest = this.getMap().getHexes()[unitConfig.dest.row][unitConfig.dest.col];
                     unit.dest = dest;
                 }
-            }
-        },
-
-        advancePlayer: function() {
-            this.attrs.currentPlayerId += 1;
-            if( this.attrs.currentPlayerId >= players.length ) {
-                this.attrs.currentPlayerId = 0;
             }
         },
 
@@ -250,8 +246,12 @@
             }
         },
 
+        applyEndTurnResult: function(result) {
+            this.attrs.currentPlayerId = result.currentPlayerId;
+        },
+
         applyMoveResult: function(result) {
-            var hexes = this.getMap().hexes;
+            var hexes = this.getMap().getHexes();
             var unit = this.getUnit(result.unitId);
             unit.dest = hexes[result.dest.row][result.dest.col];
             unit.moveToHex(hexes[result.terminator.row][result.terminator.col]);
@@ -276,7 +276,7 @@
 
             /* Calculate damage for all types. */
             var damage = Warlock.Global.damageDict();
-            for( key in source.damageMod ) {
+            for( var key in source.damageMod ) {
                 damage[key] = power * source.damageMod[key];
             };
 
@@ -284,27 +284,16 @@
             damage[action.getDamageType()] += power;
 
             /* Apply damage resistance. */
-            for( key in damage ) {
+            for( var key in damage ) {
                 damage[key] -= (damage[key] * target.resistance[key]);
             };
 
             var totalDamage = 0;
-            for( key in damage ) {
+            for( var key in damage ) {
                 totalDamage += damage[key];
             };
 
             return totalDamage;
-        },
-
-        endTurn: function() {
-            console.log( 'TODO: implement endTurn' );
-            // Warlock.units.forEach(function(unit) {
-            //     if( unit.playerId == Warlock.currentPlayer ) {
-            //         unit.setMove(unit.base.move);
-            //     }
-            // });
-
-            // this.advancePlayer();
         },
 
         generatePath: function(unit, dest) {
@@ -361,7 +350,7 @@
                 // console.log( "A-star step " + stepCount + ' ' + current.getName() );
                 if( current == dest ) {
                     // console.log( "cameFrom" );
-                    // for( key in cameFrom ) {
+                    // for( var key in cameFrom ) {
                     //     console.log( '  ' + key + ' <- ' + cameFrom[key].getName() );
                     // }
                     delete cameFrom[unit.hex.getHashKey()];
@@ -370,7 +359,7 @@
 
                 openSet.splice(openSet.indexOf(current), 1);
                 this.getMap().getNeighbors(current).forEach(function(nb) {
-                    tentativeGScore = gScore[current.getHashKey()] + unit.moveCost(current, nb);
+                    var tentativeGScore = gScore[current.getHashKey()] + unit.moveCost(current, nb);
                     // console.log( '  ' + nb.getName() + ' ' + tentativeGScore );
                     var isOpen = openSet.indexOf(nb) >= 0;
                     var nbKey = nb.getHashKey();
@@ -407,7 +396,7 @@
 
         /**
          * getPlayers()
-         * @return Array of Warlock.Player
+         * @return Dict of Int -> Warlock.Player
          */
 
         getId: function() {
@@ -416,7 +405,7 @@
 
         getUnit: function(id) {
             var units = this.getUnits();
-            for( i in units ) {
+            for( var i in units ) {
                 if( units[i].getId() == id ) {
                     return units[i];
                 }
@@ -491,6 +480,24 @@
             }
         },
 
+        nextPlayer: function() {
+            var currentId = this.getCurrentPlayerId();
+            var minId = currentId;
+            var nextId = 123456;
+
+            for( key in this.getPlayers() ) {
+                if( key < minId ) {
+                    minId = key;
+                }
+                if( key > currentId && key < nextId ) {
+                    nextId = key;
+                }
+            }
+
+            if( nextId < 123456 ) return nextId;
+            else return minId;
+        },
+
         /**
          * notify(eventName, data)
          * @param eventName String
@@ -547,7 +554,7 @@
                 console.assert( typeof currentlyHandling === "number" );
 
                 var max = -1;
-                for( key in todo ) {
+                for( var key in todo ) {
                     var value = parseFloat(key);
                     if( value < currentlyHandling && value > max ) {
                         max = value;
@@ -566,7 +573,7 @@
             };
 
             while( currentlyHandling >= 0 ) {
-                for( i in todo[currentlyHandling] ) {
+                for( var i in todo[currentlyHandling] ) {
                     var hex = todo[currentlyHandling][i];
                     done.push(hex);
                     remain[hex.getHashKey()] = currentlyHandling;
@@ -574,7 +581,7 @@
                     // Find any neighbors that haven't been done, and get
                     // ready to do them.
                     var nbs = this.getMap().getNeighbors(hex);
-                    for( n in nbs ) {
+                    for( var n in nbs ) {
                         if( queue.indexOf(nbs[n]) == -1 ) {
                             var nbCost = unit.moveCost(nbs[n]);
                             if( nbCost <= currentlyHandling ) {
@@ -607,7 +614,9 @@
 
             /* Required for object creation. */
             this._id = config.id || Warlock.Global.NULL_ID;
-            this.color = config.color;
+            this.attrs = {
+                color: config.color,
+            };
 
             /* Calculated from other values. */
             this.type = 'Player';
@@ -616,8 +625,8 @@
         serialize: function() {
             var playerRef = this;
             return {
-                id: playerRef._id,
-                color: playerRef.color
+                id: playerRef.getId(),
+                color: playerRef.getColor(),
             };
         },
 
@@ -625,6 +634,7 @@
             return this._id;
         },
     };
+    Warlock.Global.addGetters(Warlock.Player, ['color']);
 
     
     /* Class for maps. */
@@ -634,25 +644,20 @@
 
     Warlock.Map.prototype = {
         _initMap: function(config) {
-            
-            /* Required for object creation. */
-            this.rows = config.rows;
-            this.cols = config.cols;
-
-            /* Optional. */
-            this.name = config.name || "map";
-
-            /* Values based on other values. */
             this.type = 'Map';
 
-            /* The hexes that compose the map. */
-            this.hexes = [];
+            this.attrs = {
+                rows: config.rows,
+                cols: config.cols,
+                name: config.name || 'map',
+                hexes: [],
+            };
 
-            for( row in config.hexes ) {
-                this.hexes.push([]);
-                for( col in config.hexes[row] ) {
+            for( var row in config.hexes ) {
+                this.attrs.hexes.push([]);
+                for( var col in config.hexes[row] ) {
                     var hex = new Warlock.Hex(config.hexes[row][col])
-                    this.hexes[row].push(hex);
+                    this.attrs.hexes[row].push(hex);
                 }
             }
         },
@@ -660,21 +665,22 @@
         serialize: function() {
             var mapref = this;
 
-            var hexes = [];
-            for( row in this.hexes ) {
+            var realHexes = this.getHexes();
+            var serHexes = [];
+            for( var row in realHexes ) {
                 var hexRow = [];
-                for( col in this.hexes[row] ) {
-                    var hex = this.hexes[row][col];
+                for( var col in realHexes[row] ) {
+                    var hex = realHexes[row][col];
                     hexRow.push(hex.serialize());
                 }
-                hexes.push(hexRow);
+                serHexes.push(hexRow);
             }
 
             return {
-                name: mapref.name,
-                rows: mapref.rows,
-                cols: mapref.cols,
-                hexes: hexesArray,
+                name: mapref.getName(),
+                rows: mapref.getRows(),
+                cols: mapref.getCols(),
+                hexes: serHexes,
             };
         },
 
@@ -682,27 +688,27 @@
             /* Convenience declarations. */
             var row = hex.getRow();
             var col = hex.getCol();
-            var hexes = this.hexes;
+            var hexes = this.getHexes();
 
             /* Store of currently calculated neighbors. Will be returned. */
             var nbs = []
 
             if( col > 0 ) nbs.push( hexes[row][col - 1] );
             if( row % 2 == 0 ) {
-                if( col < this.cols - 2 ) {
+                if( col < this.getCols() - 2 ) {
                     nbs.push( hexes[row][col + 1] );
                 }
                 if( row > 0 ) {
                     nbs.push( hexes[row - 1][col    ] );
                     nbs.push( hexes[row - 1][col + 1] );
                 }
-                if( row < this.rows - 1 ) {
+                if( row < this.getRows() - 1 ) {
                     nbs.push( hexes[row + 1][col    ] );
                     nbs.push( hexes[row + 1][col + 1] );
                 }
             }
             else {
-                if( col < this.cols - 1 ) {
+                if( col < this.getCols() - 1 ) {
                     nbs.push( hexes[row    ][col + 1] );
                     nbs.push( hexes[row - 1][col    ] );
                     nbs.push( hexes[row + 1][col    ] );
@@ -717,7 +723,7 @@
         },
 
         getHex: function(pos) {
-            return this.hexes[pos.row][pos.col];
+            return this.getHexes()[pos.row][pos.col];
         },
 
         getNeighbors: function(hex) {
@@ -727,6 +733,8 @@
             return hex._neighbors;
         },
     };
+
+    Warlock.Global.addGetters(Warlock.Map, ['rows', 'cols', 'name', 'hexes']);
 
 
 
@@ -774,12 +782,27 @@
     };
 
     Warlock.Hex.prototype = {
+        required: ['row', 'col', 'terrain'],
+        checkConfig: function(config) {
+            // Must have a valid config file.
+            console.assert(config !== undefined);
+
+            // Must have all required fields.
+            this.required.forEach(function(string) {
+                if( config[string] === undefined ) {
+                    console.log( '==================================================' );
+                    console.log( config );
+                    throw 'Required value missing in config: ' + string;
+                }
+            });
+        },        
+
         _initHex: function(config) {
+            this.checkConfig(config);
+
             this._neighbors = null; // Warlock.Map.neighbors caches results here.
             this.type = 'Hex';
 
-            /* Required values in config. */
-            this.required = ['row', 'col', 'terrain'];
             this.attrs = {
 
                 /* Required for object creation. */
@@ -982,7 +1005,7 @@
             /* Copy the base values into current, which is where they will be updated. */
             if( config.current === undefined ) {
                 this.current = {};
-                for( key in config.base ) {
+                for( var key in config.base ) {
                     this.current[key] = config.base[key];
                 }
             }
@@ -1003,7 +1026,7 @@
                 actionsArray = actionsArray.slice(1);
             }
 
-            return {
+            var dict = {
                 id: self._id,
                 name: self.name,
                 playerId: self.playerId,
@@ -1013,22 +1036,24 @@
                 base: self.base,
                 current: self.current,
                 pos: {
-                    row: self.hex.row,
-                    col: self.hex.col
+                    row: self.hex.getRow(),
+                    col: self.hex.getCol(),
                 },
-                actions: actionArray,
+                actions: actionsArray,
                 resistance: self.resistance,
                 damageMod: self.damageMod,
                 flying: self.flying,
                 dest: {
-                    row: self.dest.row,
-                    col: self.dest.col
+                    row: self.dest.getRow(),
+                    col: self.dest.getCol(),
                 }
             };
+
+            return dict;
         },
 
         getAction: function(name) {
-            for( i in this.actions ) {
+            for( var i in this.actions ) {
                 if( this.actions[i].getName() == name ) {
                     return this.actions[i];
                 }
