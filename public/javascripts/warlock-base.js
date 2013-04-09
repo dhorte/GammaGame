@@ -211,16 +211,16 @@
                 /* Unit's position. Requires hexes, which Unit cannot access. */
                 var hex = this.getMap().getHexes()[unitConfig.pos.row][unitConfig.pos.col];
                 this.attrs.units.push(unit);
-                unit.hex = hex;
+                unit.setHex(hex);
                 hex.setUnit(unit);
 
                 /* Unit's destination. Requires hexes, which Unit cannot access. */
                 if( unitConfig.dest === undefined ) {
-                    unit.dest = unit.hex;
+                    unit.setDest(hex);
                 }
                 else {
                     var dest = this.getMap().getHexes()[unitConfig.dest.row][unitConfig.dest.col];
-                    unit.dest = dest;
+                    unit.setDest(dest);
                 }
             }
         },
@@ -229,18 +229,18 @@
             var attacker = this.getUnit(result.attacker.id);
             var defender = this.getUnit(result.defender.id);
 
-            attacker.current.hp -= result.attacker.hpLost;
-            defender.current.hp -= result.defender.hpLost;
+            attacker.reduceHp( result.attacker.hpLost );
+            defender.reduceHp( result.defender.hpLost );
 
-            attacker.current.move = 0;
+            attacker.setMove(0);
 
             this.notify('attack-result', result);
 
-            if( attacker.current.hp <= 0 ) {
+            if( attacker.getHp() <= 0 ) {
                 this.removeUnit(attacker);
                 this.notify('unit-death', attacker);
             }
-            if( defender.current.hp <= 0 ) {
+            if( defender.getHp() <= 0 ) {
                 this.removeUnit(defender);
                 this.notify('unit-death', defender);
             }
@@ -253,8 +253,8 @@
         applyMoveResult: function(result) {
             var hexes = this.getMap().getHexes();
             var unit = this.getUnit(result.unitId);
-            unit.dest = hexes[result.dest.row][result.dest.col];
-            unit.moveToHex(hexes[result.terminator.row][result.terminator.col]);
+            unit.setHex(hexes[result.terminator.row][result.terminator.col]);
+            unit.setDest(hexes[result.dest.row][result.dest.col]);
             unit.setMove(result.move);
             this.notify('unit-move', result);
         },
@@ -268,24 +268,26 @@
          *   defense: Dict( memo about defense applied to each damage type )
          */
         calcDamage: function(source, target, action, isAttacking) {
-            var power = source.power;
+            var power = source.getPower();
 
             /* Apply all power mods. */
             power += power * action.getPowerMod();
-            power += power * source.powerMod;
+            power += power * source.getPowerMod();
 
             /* Calculate damage for all types. */
             var damage = Warlock.Global.damageDict();
-            for( var key in source.damageMod ) {
-                damage[key] = power * source.damageMod[key];
+            var damageMod = source.getDamageMod();
+            for( var key in source.getDamageMod() ) {
+                damage[key] = power * damageMod[key];
             };
 
             /* Add in the base damage. */
             damage[action.getDamageType()] += power;
 
             /* Apply damage resistance. */
+            var targetResist = target.getResistance();
             for( var key in damage ) {
-                damage[key] -= (damage[key] * target.resistance[key]);
+                damage[key] -= (damage[key] * targetResist[key]);
             };
 
             var totalDamage = 0;
@@ -297,6 +299,7 @@
         },
 
         generatePath: function(unit, dest) {
+            console.log( 'Generating path from ' + unit.getHex().getName() + ' to ' + dest.getName() );
 
             // Find the shortest path based on the cameFrom data.
             var reconstructPath = function(cameFrom, current) {
@@ -312,17 +315,17 @@
                 }
             };
 
-            var openSet = [unit.hex]; // The set of nodes to explore.
+            var openSet = [unit.getHex()]; // The set of nodes to explore.
             var cameFrom = {};        // Map of navigated nodes.
 
-            var startHash = unit.hex.getHashKey();
+            var startHash = unit.getHex().getHashKey();
 
             // Cost from start along best known path.
             var gScore = {};
             gScore[startHash] = 0;
             // Estimated total cost from start to goal through y.
             var fScore = {};
-            fScore[startHash] = unit.hex.dist(dest);
+            fScore[startHash] = unit.getHex().dist(dest);
 
             // Return the hex in openSet with the lowest fScore.
             var getNext = function() {
@@ -347,20 +350,18 @@
                 stepCount += 1;
 
                 var current = getNext();
-                // console.log( "A-star step " + stepCount + ' ' + current.getName() );
+                console.log( 'current: ' + current.getName() );
                 if( current == dest ) {
-                    // console.log( "cameFrom" );
-                    // for( var key in cameFrom ) {
-                    //     console.log( '  ' + key + ' <- ' + cameFrom[key].getName() );
-                    // }
-                    delete cameFrom[unit.hex.getHashKey()];
+                    // Remove the original point from the cameFrom dict, as that breaks
+                    // the reconstructPath function.
+                    delete cameFrom[unit.getHex().getHashKey()];
                     return reconstructPath(cameFrom, dest);
                 }
 
                 openSet.splice(openSet.indexOf(current), 1);
                 this.getMap().getNeighbors(current).forEach(function(nb) {
                     var tentativeGScore = gScore[current.getHashKey()] + unit.moveCost(current, nb);
-                    // console.log( '  ' + nb.getName() + ' ' + tentativeGScore );
+                    console.log( '  ' + nb.getName() + ' ' + tentativeGScore );
                     var isOpen = openSet.indexOf(nb) >= 0;
                     var nbKey = nb.getHashKey();
 
@@ -375,11 +376,11 @@
                     }
                 });
 
-                // console.log( 'open' );
-                // openSet.forEach(function(hex) {
-                //     var key = hex.getHashKey();
-                //     console.log( '  ' + hex.getName() + ' g=' + gScore[key] + ' f=' + fScore[key] + ' from=' + cameFrom[key].getName() );
-                // });
+                console.log( 'open' );
+                openSet.forEach(function(hex) {
+                    var key = hex.getHashKey();
+                    console.log( '  ' + hex.getName() + ' g=' + gScore[key] + ' f=' + fScore[key] + ' from=' + cameFrom[key].getName() );
+                });
             }
 
             console.log( 'A* failed to find a path.' );
@@ -429,19 +430,19 @@
         generateMoveResult: function(unit) {
             var result = {
                 unitId: unit.getId(),
-                dest: unit.dest.getPos(),
+                dest: unit.getDest().getPos(),
                 move: unit.getMove(),
                 terminator: null,
                 path: null,
                 error: null
             };
 
-            if( unit.playerId != this.getCurrentPlayerId() ) {
+            if( unit.getPlayerId() != this.getCurrentPlayerId() ) {
                 result.error = "It is not this player's turn to move.";
                 return result;
             }
             else {
-                var path = this.generatePath(unit, unit.dest);
+                var path = this.generatePath(unit, unit.getDest());
 
                 if( path.length == 0 ) {
                     return { error: 'No path found to destination.' };
@@ -449,7 +450,7 @@
 
                 // The first hex in the path is the unit's current position.
                 else if( path.length == 1 ) {
-                    result.terminator = unit.hex.getPos();
+                    result.terminator = unit.getHex().getPos();
                     result.path = [path[0].getPos()];
                     return result;
                 }
@@ -519,7 +520,7 @@
             this.units = this.units.splice(index, 1);
             
             // Remove from hex.
-            unit.hex.unit = null;
+            unit.getHex.unit = null;
 
             notify('unit-removed', unit);
         },
@@ -536,10 +537,10 @@
             console.assert(this.getUnits().indexOf(unit) >= 0);
 
             var done = [];
-            var queue = [unit.hex];
+            var queue = [unit.getHex()];
             var remain = {};
             var todo = {};
-            todo[unit.getMove()] = [unit.hex];  // Start with the current hex.
+            todo[unit.getMove()] = [unit.getHex()];  // Start with the current hex.
             var currentlyHandling = unit.getMove();
 
             var movable = [];
@@ -745,36 +746,37 @@
 
 
     Warlock.Terrain.prototype = {
-        _initTerrain: function(config) {
-            
-            /* Required for object creation. */
-            this.height = config.height;
-            this.climate = config.climate;
-            this.veg = config.veg;
-
-            /* Calculated from other values. */
-            this.type = 'Terrain';
-            this.color = this._setColor();
+        _checkConfig: function(config) {
+            console.assert( config !== undefined );
         },
+            
 
-        _setColor: function() {
-            switch(this.height) {
-            case Warlock.elevation.WATER:     return 'blue';
-            case Warlock.elevation.PLAINS:    return '#7CFC00';
-            case Warlock.elevation.HILLS:     return '#8B4513';
-            case Warlock.elevation.MOUNTAINS: return '#aaa';
-            }
+        _initTerrain: function(config) {
+            this._checkConfig(config);
+
+            this.type = 'Terrain';
+            
+            this.attrs = {
+                height: config.height,
+                climate: config.climate,
+                veg: config.veg,
+            };
         },
 
         serialize: function() {
             var self = this;
             return {
-                height: self.height,
-                climate: self.climate,
-                veg: self.veg
+                height: self.getHeight(),
+                climate: self.getClimate(),
+                veg: self.getVeg(),
             };
         },
     };
+
+    Warlock.Global.addGetters(Warlock.Terrain, ['height', 'climate', 'veg']);
+
+
+
 
     /* Class for hexes. */
     Warlock.Hex = function(config) {
@@ -896,6 +898,11 @@
          */
 
         /**
+         * getTerrain()
+         * @return Warlock.Terrain
+         */
+
+        /**
          * getUnit()
          * @return Warlock.Unit
          */
@@ -960,45 +967,53 @@
         _initUnit: function(config) {
             var unitRef = this;
 
-            /* Dictionaries that we'll need to fill. */
-            this.actions = [];
-
-            /* Required for object creation. */
-            this.base = config.base;
-            this.name = config.name;
-            this.playerId = config.playerId;
-            this.power = config.power;
-            this.powerKind = config.powerKind;
-
-            /* Optional values with defaults. */
             this._id = config.id || Warlock.Global.NULL_ID;
-            this.hex = null;   // Warlock.Hex
-            this.dest = null;  // Warlock.Hex
             this.type = 'Unit';
-            this.powerMod = config.powerMod || 0;
-            this.damageMod = Warlock.Global.damageDict(config.damageMod);
-            this.resistance = Warlock.Global.damageDict(config.resistance);
-            this.flying = config.flying || false;
-            this.basicAttack = null;  // Warlock.Action
+
+            this.attrs = {
+                name: config.name,
+                playerId: config.playerId,
+
+                actions: [],
+                move: -1,
+
+                /* Combat related values. */
+                hp: -1,
+                power: config.power,
+                powerKind: config.powerKind,
+                powerMod: config.powerMod || 0,
+                damageMod: Warlock.Global.damageDict(config.damageMod),
+                resistance: Warlock.Global.damageDict(config.resistance),
+                basicAttack: null,
+
+                /* Flags. */
+                flying: config.flying || false,
+                marine: config.marine || false,
+
+                base: config.base,  // base values for hp, movement, etc.
+                
+                hex: null,
+                dest: null,
+            };
 
             /* Create a basic attack for this unit, based on its power. */
             if( config.power > 0 && !config.noAttack ) {
-                this.basicAttack = new Warlock.Action({
+                this.attrs.basicAttack = new Warlock.Action({
                     name: 'basic attack',
                     kind: 'attack',
                     range: (function() {
                         if( config.powerKind == 'melee' ) return 1;
                         else return 2;
                     })(),
-                    damageType: unitRef.powerKind,
+                    damageType: unitRef.getPowerKind(),
                 });
-                this.actions.push(this.basicAttack);
+                this.addAction(this.attrs.basicAttack);
             }
 
             /* Add additional actions from the config file. */
             if( config.actions !== undefined ) {
                 config.actions.forEach(function(actionConfig) {
-                    unitRef.actions.push(new Warlock.Action(actionConfig));
+                    unitRef.addAction(new Warlock.Action(actionConfig));
                 });
             }
 
@@ -1006,123 +1021,141 @@
             if( config.current === undefined ) {
                 this.current = {};
                 for( var key in config.base ) {
-                    this.current[key] = config.base[key];
+                    this.attrs[key] = config.base[key];
                 }
             }
             else {
-                this.current = config.current;
+                for( var key in config.current ) {
+                    this.attrs[key] = config.current[key];
+                }
             }
+        },
+
+        addAction: function(action) {
+            this.attrs.actions.push(action);
         },
 
         serialize: function() {
             var self = this;
 
             var actionsArray = [];
-            this.actions.forEach(function(action) {
+            this.getActions().forEach(function(action) {
                 actionsArray.push(action.serialize());
             });
             // Don't include the basic attack in the serialization.
-            if( self.basicAttack != null ) {
+            if( self.getBasicAttack() != null ) {
                 actionsArray = actionsArray.slice(1);
             }
 
             var dict = {
                 id: self._id,
-                name: self.name,
-                playerId: self.playerId,
-                power: self.power,
-                powerKind: self.powerKind,
-                powerMod: self.powerMod,
-                base: self.base,
-                current: self.current,
-                pos: {
-                    row: self.hex.getRow(),
-                    col: self.hex.getCol(),
-                },
+                name: self.getName(),
+                playerId: self.getPlayerId(),
+                power: self.getPower(),
+                powerKind: self.getPowerKind(),
+                powerMod: self.getPowerMod(),
+                base: self.getBase(),
+                hp: self.getHp(),
+                move: self.getMove(),
+                pos: self.getHex().getPos(),
                 actions: actionsArray,
-                resistance: self.resistance,
-                damageMod: self.damageMod,
-                flying: self.flying,
-                dest: {
-                    row: self.dest.getRow(),
-                    col: self.dest.getCol(),
-                }
+                resistance: self.getResistance(),
+                damageMod: self.getDamageMod(),
+                flying: self.getFlying(),
+                marine: self.getMarine(),
+                dest: self.getDest().getPos(),
             };
 
             return dict;
         },
 
         getAction: function(name) {
-            for( var i in this.actions ) {
-                if( this.actions[i].getName() == name ) {
-                    return this.actions[i];
+            var actions = this.getActions();
+            for( var i in actions ) {
+                if( actions[i].getName() == name ) {
+                    return actions[i];
                 }
             }
-            return null;
+            throw 'Unknown action: ' + name;
+        },
+
+        getCol: function() {
+            return this.getHex().getCol();
         },
 
         getId: function() {
             return this._id;
         },
 
-        getMove: function() {
-            return this.current.move;
+        getRow: function() {
+            return this.getHex().getCol();
         },
 
         setMove: function(amount) {
-            console.assert(amount >= 0);
-            console.assert(amount <= this.base.move);
-            this.current.move = amount;
-
-            /* Create a visual indicator when a unit has no more movement points. */
-            if( this.current.move == 0 ) {
-                console.log( "TODO: Show a visual indicator when movement is exhausted." )
-            }
+            if( amount < 0 ) this.attrs.move = 0;
+            else if( amount > this.getBase().move ) this.attrs.move = this.getBase().move;
+            else this.attrs.move = amount;
         },
 
         moveCost: function(hex) {
-            if( hex.getUnit() != null && hex.getUnit().playerId != this.playerId ) {
+
+            // Can't move onto or through enemy units.
+            if( hex.getUnit() != null && hex.getUnit().getPlayerId() != this.getPlayerId() ) {
                 return Number.MAX_VALUE;
             }
-            else if( this.flying ) {
+
+            // Flying units always have move cost one.
+            else if( this.getFlying() ) {
                 return 1;
             }
-            else if( this.marine ) {
-                if( hex.terrain.height == Warlock.WATER ) return 1;
+
+            // Marine units can only move on water.
+            // Marine units always have move cost 1 one water.
+            else if( this.getMarine() ) {
+                if( hex.getTerrain().getHeight() == Warlock.WATER ) return 1;
                 else return Number.MAX_VALUE;
             }
+
+            // For ground units, movement is based on the terrain type.
             else {
                 var terrain = hex.getTerrain();
-                /* Impassable terrain. */
-                if( terrain.height == Warlock.elevation.MOUNTAINS ||
-                    terrain.height == Warlock.elevation.WATER ) return Number.MAX_VALUE;
+                var height = terrain.getHeight();
+                var veg = terrain.getVeg();
 
-                /* Vegetation. */
-                else if( terrain.veg == Warlock.vegetation.FOREST ) return 2;
-                else if( terrain.veg == Warlock.vegetation.JUNGLE ) return 2;
-                else if( terrain.veg == Warlock.vegetation.SWAMP ) return 4;
+                // Impassable terrain.
+                if( height == Warlock.elevation.MOUNTAINS ||
+                    height == Warlock.elevation.WATER ) return Number.MAX_VALUE;
 
-                /* Raw terrain. */
-                else if( terrain.height == Warlock.elevation.PLAINS ) return 1;
-                else if( terrain.height == Warlock.elevation.HILLS ) return 2;
+                // Vegetation.
+                else if( veg == Warlock.vegetation.FOREST ) return 2;
+                else if( veg == Warlock.vegetation.JUNGLE ) return 2;
+                else if( veg == Warlock.vegetation.SWAMP ) return 4;
+
+                // Raw terrain.
+                else if( height == Warlock.elevation.PLAINS ) return 1;
+                else if( height == Warlock.elevation.HILLS ) return 2;
+
                 else throw "unknown terrain";
             }
         },
 
-        /**
-         * Move this unit to the specified hex.
-         * This function tests if the unit can legally be positioned on that hex, which
-         * could be prevented by terrain conditions, enemy units, etc. However, it does
-         * not check or update movement points. So, this can be used by various effects
-         * to move the unit without worrying about affecting the movement points of the
-         * unit.
-         * @param hex Location of this unit after calling the function.
-         */
-        moveToHex: function(hex) {
-            this.hex.setUnit(null);
-            this.hex = hex;
+        reduceHp: function(amount) {
+            this.attrs.hp -= amount;
+            if( this.attrs.hp < 0 ) this.attrs.hp = 0;
+        },
+
+        setHex: function(hex) {
+            if( this.getHex() != null ) {
+                this.attrs.hex.setUnit(null);
+            }
+            this.attrs.hex = hex;
             hex.setUnit(this);
         },
+
     };
+
+    Warlock.Global.addGetters(Warlock.Unit, ['name', 'playerId', 'actions', 'move', 'hp', 'power', 'powerKind', 'powerMod', 'damageMod', 'resistance', 'basicAttack', 'flying', 'hex', 'dest', 'base', 'marine']);
+
+    Warlock.Global.addSetters(Warlock.Unit, ['dest']);
 
 })(typeof exports === 'undefined' ? this['Warlock'] = {} : exports);

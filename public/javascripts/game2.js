@@ -118,7 +118,7 @@
             /* Initialize all of the units. */
             this.game.getUnits().forEach(function(unit) {
                 unit.initializeUI();
-                unit.hex.ui.elem.add(unit.ui.elem);
+                unit.getHex().ui.elem.add(unit.ui.elem);
             });
 
             this.game.addListener(this);
@@ -307,13 +307,6 @@
                 Messages.println( data.name + ' has died.' );
                 break;
 
-            case 'unit-move':
-                var unit = this.game.getUnit(data.unitId);
-                var destHex = this.game.getMap().getHex(data.terminator);
-                unit.ui.elem.moveTo(destHex.ui.elem);
-                this.selectUnit(unit);
-                break;
-
             case 'unit-removed':
                 data.ui.elem.remove();
                 break;
@@ -335,7 +328,7 @@
             this.selectedUnit = unit;
 
             // Calculate possible movement.
-            var hex = unit.hex;
+            var hex = unit.getHex();
             var movement = Warlock.game.unitMovement(unit);
             this.moveHexes = movement.hexes;
             this.moveRemain = movement.remain;
@@ -344,7 +337,7 @@
             for( var i in this.moveHexes ) {
                 var hex = this.moveHexes[i];
                 var finalMove = this.moveRemain[hex.getHashKey()] <= 0;
-                var activeUnit = this.selectedUnit.playerId == this.game.getCurrentPlayerId();
+                var activeUnit = this.selectedUnit.getPlayerId() == this.game.getCurrentPlayerId();
                 hex.ui.outline({
                     color: finalMove ? 'red' : 'magenta',
                     opacity: activeUnit ? 1.0 : 0.6
@@ -352,7 +345,7 @@
             }
 
             // Display the unit's stats.
-            var text = unit.name + '\nhp: ' + Math.round(unit.current.hp) + '/' + unit.base.hp + '\nmove: ' + unit.getMove() + '/' + unit.base.move;
+            var text = unit.getName() + '\nhp: ' + Math.round(unit.getHp()) + '/' + unit.getBase().hp + '\nmove: ' + unit.getMove() + '/' + unit.getBase().move;
             this.elems.unitInfoText.setText(text);
 
             // Display the unit's actions.
@@ -361,7 +354,7 @@
 
         setActionButtons: function(unit) {
             var uiRef = this;
-            var actions = unit.actions;
+            var actions = unit.getActions();
 
             this.clearActionButtons();
 
@@ -395,7 +388,7 @@
                         uiRef.elems.infoLayer.draw();
                     });
                     group.on('click', function(event) {
-                        if( unit.playerId == uiRef.game.getCurrentPlayerId() ) {
+                        if( unit.getPlayerId() == uiRef.game.getCurrentPlayerId() ) {
                             Warlock.startAction(unit, action);
                         }
                     });
@@ -450,22 +443,22 @@
         console.assert( Warlock.ui.selectedUnit == unit );
 
         if( unit.getMove() <= 0 ) {
-            Messages.println( unit.name + ' does not have enough movement to perform ' + action.getName() );
+            Messages.println( unit.getName() + ' does not have enough movement to perform ' + action.getName() );
             return;
         }
 
         Warlock.ui.clearMoveOutlines();
 
         /* Add outlines to valid targets. */
-        var targetable = Warlock.util.hexDisc(unit.hex, action.getRange());
+        var targetable = Warlock.util.hexDisc(unit.getHex(), action.getRange());
         Warlock.ui.targetHexes = targetable.filter(function(hex) {
             if( hex.getUnit() == null ) {
                 return false;
             }
-            else if( action.getKind() == 'attack' && hex.getUnit().playerId != unit.playerId ) {
+            else if( action.getKind() == 'attack' && hex.getUnit().getPlayerId() != unit.getPlayerId() ) {
                 return true;
             }
-            else if( action.getKind() == 'heal' && hex.getUnit().playerId == unit.playerId ) {
+            else if( action.getKind() == 'heal' && hex.getUnit().getPlayerId() == unit.getPlayerId() ) {
                 return true;
             }
             else {
@@ -490,9 +483,9 @@
      * @param source String for output message, the cause of the damage
      */
     Warlock.applyDamage = function(unit, amount) {
-        unit.current.hp -= amount;
-        if( unit.current.hp <= 0 ) {
-            Messages.println(unit.name + ' has died.');
+        unit.reduceHp( amount );
+        if( unit.getHp() <= 0 ) {
+            Messages.println(unit.getName() + ' has died.');
         };
     };
 
@@ -538,6 +531,16 @@
  */
 (function( Warlock, undefined ) {
 
+    Warlock.Hex.prototype.getBackgroundColor = function() {
+        switch(this.getTerrain().getHeight()) {
+        case Warlock.elevation.WATER:     return 'blue';
+        case Warlock.elevation.PLAINS:    return '#7CFC00';
+        case Warlock.elevation.HILLS:     return '#8B4513';
+        case Warlock.elevation.MOUNTAINS: return '#aaa';
+        default: return 'magenta';
+        }
+    };
+
     Warlock.Hex.prototype.initializeUI = function() {
         var hexRef = this;
         var row = this.getRow();
@@ -556,7 +559,7 @@
         this.ui.backgroundElem = new Kinetic.RegularPolygon({
             sides: 6,
             radius: Warlock.HEX_RAD,
-            fill: this.getTerrain().color,
+            fill: this.getBackgroundColor(),
             stroke: 'black',
             strokeWidth: 1,
             name: 'hex background ' + row + ', ' + col,
@@ -634,8 +637,7 @@
                         Messages.println( "Can't move units when it is not your turn." );
                         return;
                     }
-
-                    Warlock.ui.selectedUnit.dest = hexRef;
+                    
                     Warlock.socket.emit('move', {
                         unitId: Warlock.ui.selectedUnit.getId(),
                         dest: hexRef.getPos(),
@@ -688,7 +690,7 @@
         var unitRef = this;
         var getColor = function() {
             var players = Warlock.game.getPlayers();
-            var playerId = unitRef.playerId;
+            var playerId = unitRef.getPlayerId();
             var color = players[playerId].getColor();
 
             if( color === undefined ) {
@@ -774,7 +776,14 @@ $(document).ready(function() {
                 Messages.println(data.error);
             }
             else {
+                // Update the game state.
                 Warlock.game.applyMoveResult(data);
+                
+                // Update the UI.
+                var unit = Warlock.game.getUnit(data.unitId);
+                var destHex = Warlock.game.getMap().getHex(data.terminator);
+                unit.ui.elem.moveTo(destHex.ui.elem);
+                Warlock.ui.selectUnit(unit);
                 Warlock.ui.redraw();
             }
         });

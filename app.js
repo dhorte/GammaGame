@@ -191,9 +191,9 @@ app.io.route('attack', function(req) {
     result.defender.hpLost = game.calcDamage(attacker, defender, action, true);
 
     // Calculate counter-attack damage, if applicable.
-    if( defender.basicAttack != null && action.getDamageType() == 'melee' ) {
-        result.attacker.hpLost = game.calcDamage(defender, attacker, defender.basicAttack, false);
-        result.defender.actionName = defender.basicAttack.getName();
+    if( defender.getBasicAttack() != null && action.getDamageType() == 'melee' ) {
+        result.attacker.hpLost = game.calcDamage(defender, attacker, defender.getBasicAttack(), false);
+        result.defender.actionName = defender.getBasicAttack().getName();
     }
 
     // Apply damage to units.
@@ -208,10 +208,10 @@ app.io.route('move', function(req) {
 
     var game = games[req.session.gameId];
     var unit = game.getUnit(req.data.unitId);
-    unit.dest = game.getMap().getHexes()[req.data.dest.row][req.data.dest.col];
 
+    unit.setDest(game.getMap().getHexes()[req.data.dest.row][req.data.dest.col]);
     var result = game.generateMoveResult(unit);
-    
+
     if( result.error == null ) {
         // Move the unit.
         game.applyMoveResult(result);
