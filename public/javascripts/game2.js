@@ -723,7 +723,7 @@ $(document).ready(function() {
     (function( Warlock, undefined ) {
 
         Warlock.socket = io.connect('http://localhost');
-        Warlock.socket.emit('ready', 'from client socket');
+        Warlock.socket.emit('ready', '--this is sent to the server--');
         Warlock.socket.on('load-game', function(data) {
             Messages.println( 'Connected to server.' );
             Messages.println( 'at: ' + data.loginDate );

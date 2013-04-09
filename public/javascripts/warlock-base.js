@@ -299,7 +299,7 @@
         },
 
         generatePath: function(unit, dest) {
-            console.log( 'Generating path from ' + unit.getHex().getName() + ' to ' + dest.getName() );
+            // console.log( 'Generating path from ' + unit.getHex().getName() + ' to ' + dest.getName() );
 
             // Find the shortest path based on the cameFrom data.
             var reconstructPath = function(cameFrom, current) {
@@ -350,7 +350,7 @@
                 stepCount += 1;
 
                 var current = getNext();
-                console.log( 'current: ' + current.getName() );
+                // console.log( 'current: ' + current.getName() );
                 if( current == dest ) {
                     // Remove the original point from the cameFrom dict, as that breaks
                     // the reconstructPath function.
@@ -361,7 +361,7 @@
                 openSet.splice(openSet.indexOf(current), 1);
                 this.getMap().getNeighbors(current).forEach(function(nb) {
                     var tentativeGScore = gScore[current.getHashKey()] + unit.moveCost(current, nb);
-                    console.log( '  ' + nb.getName() + ' ' + tentativeGScore );
+                    // console.log( '  ' + nb.getName() + ' ' + tentativeGScore );
                     var isOpen = openSet.indexOf(nb) >= 0;
                     var nbKey = nb.getHashKey();
 
@@ -376,11 +376,11 @@
                     }
                 });
 
-                console.log( 'open' );
-                openSet.forEach(function(hex) {
-                    var key = hex.getHashKey();
-                    console.log( '  ' + hex.getName() + ' g=' + gScore[key] + ' f=' + fScore[key] + ' from=' + cameFrom[key].getName() );
-                });
+                // console.log( 'open' );
+                // openSet.forEach(function(hex) {
+                //     var key = hex.getHashKey();
+                //     console.log( '  ' + hex.getName() + ' g=' + gScore[key] + ' f=' + fScore[key] + ' from=' + cameFrom[key].getName() );
+                // });
             }
 
             console.log( 'A* failed to find a path.' );

@@ -19,6 +19,18 @@ games[1] = new Warlock.Game({
     units: test.units
 });
 
+var User = {
+    users: {
+        'https://www.google.com/accounts/o8/id?id=AItOawkbS7A1z5SOiwUWaPPFemNMCS2STpCtCqA': {
+            gameId: 1,
+            playerId: 1
+        }
+    },
+
+    getByIdentifier: function(identifier) {
+        return this.users[identifier];
+    }
+};
 
 
 var app = express().http().io();
@@ -121,14 +133,23 @@ app.get('/auth/google/return',
 
 
 app.get('/', function(req, res) {
-    req.session.loginDate = new Date().toString();
     console.log('user: ' + req.user);
+    for( var i in req.user ) {
+        console.log( '  ' + i + ' -> ' + req.user[i] );
+    }
+    if( req.user !== undefined ) {
+        req.session.loginDate = new Date().toString();
+        req.session.identifier = req.user.identifier;
+        var user = User.getByIdentifier(req.user.identifier);
+        req.session.gameId = user.gameId;
+        req.session.playerId = user.playerId;
+    }
     res.render('index', { title: 'Warlock', user: req.user });
 });
 
 // Authentication for the socket connection.
 app.use(function(req, res, next) {
-    console.log('log: %s %s %s', req.method, req.url, req.session.user);
+    console.log('log: %s %s %s', req.method, req.url, req.session.identifier);
     next();
 });    
 
@@ -140,23 +161,20 @@ app.use(function(req, res, next) {
 // Setup a route for the ready event, and add session data.
 app.io.route('ready', function(req) {
 
-    players += 1;
-    var gameId = 1;
-    var yourPlayerId = players;
+    // players += 1;
+    // var gameId = 1;
+    // var yourPlayerId = players;
 
     // Add the game id to the session.
-    req.session.gameId = gameId;
-    req.session.playerId = yourPlayerId;
-
-    // Grab the game.
-    var game = games[req.session.gameId];
+    // req.session.gameId = gameId;
+    // req.session.playerId = yourPlayerId;
 
     // Save the session data, and send the game data to the client.
     req.session.save(function() {
-        var data = game.serialize();
+        var data = games[req.session.gameId].serialize();
         data.loginDate = req.session.loginDate;
-        data.info = req.data;
-        data.yourPlayerId = yourPlayerId;
+        data.info = req.session.identifier;
+        data.yourPlayerId = req.session.playerId;
         req.io.emit('load-game', data);
     });
 });
