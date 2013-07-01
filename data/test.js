@@ -65,6 +65,7 @@ exports.units = [
         playerId: 1,
         power: 10,
         powerKind: 'spirit',
+        sight: 2,
         base: {
             hp: 20,
             move: 3,
@@ -84,6 +85,7 @@ exports.units = [
         playerId: 1,
         power: 8,
         powerKind: 'melee',
+        sight: 3,
         base: {
             hp: 16,
             move: 5,
@@ -98,6 +100,7 @@ exports.units = [
         playerId: 2,
         power: 8,
         powerKind: 'melee',
+        sight: 2,
         base: {
             hp: 24,
             move: 3,

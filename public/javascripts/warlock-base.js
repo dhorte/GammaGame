@@ -126,6 +126,9 @@
     Warlock.vegetation.JUNGLE = 2;
     Warlock.vegetation.SWAMP  = 3;
 
+    /* Terrain special. */
+    Warlock.UNEXPLORED = 'unexplored';
+
 
     Warlock.Game = function(config) {
         this._initGame(config);
@@ -159,25 +162,42 @@
             return this._nextId++;
         },
 
-        serialize: function() {
+        /**
+         * serialize(playerId)
+         * @param playerId Int: Player whose point of view to use.
+         * @return Dict: config file for instantiating a new Warlock.Game
+         *
+         * If @param playerId is unspecified, then serialize the whole game.
+         * Otherwise, serialize only those parts of the game that the specified player
+         * has knowledge about.
+         */
+        serialize: function(playerId) {
             var gameRef = this;
+            var player = this.getPlayer(playerId);
+
+            if( typeof player === 'undefined' ) {
+                console.assert( false, 'Player is not defined.' );
+            }
 
             var playersDict = {};
             var players = this.getPlayers();
             for( var key in players ) {
-                playersDict[key] = players[key].serialize();
+                playersDict[key] = players[key].serialize(player);
             }
 
+            // Don't send information about units that the target player cannot see.
             var unitsArray = [];
             this.getUnits().forEach(function(unit) {
-                unitsArray.push(unit.serialize());
+                if( player === undefined || player.isVisible(unit.getHex()) ) {
+                    unitsArray.push(unit.serialize(player));
+                }
             });
             
             return {
                 gameId: gameRef._id,
                 nextId: gameRef._nextId,
                 currentPlayerId: gameRef.attrs.currentPlayerId,
-                map: gameRef.attrs.map.serialize(),
+                map: gameRef.getMap().serialize(player),
                 players: playersDict,
                 units: unitsArray,
             }
@@ -387,13 +407,17 @@
         },
 
         getCurrentPlayer: function() {
-            return this.attrs.players[this.attrs.currentPlayerId];
+            return this.getPlayer(this.attrs.currentPlayerId);
         },
 
         /**
          * getMap()
          * @return Warlock.Map
          */
+
+        getPlayer: function(playerId) {
+            return this.attrs.players[playerId];
+        },
 
         /**
          * getPlayers()
@@ -612,30 +636,81 @@
 
     Warlock.Player.prototype = {
         _initPlayer: function(config) {
-
-            /* Required for object creation. */
             this._id = config.id || Warlock.Global.NULL_ID;
+            this.type = 'Player';
+
             this.attrs = {
                 color: config.color,
-            };
 
-            /* Calculated from other values. */
-            this.type = 'Player';
+                // List of names of hexes that are visible to this player.
+                visibleHexes: config.visibleHexes || [],
+                exploredHexes: config.exploredHexes || [],
+            };
         },
 
-        serialize: function() {
+        /**
+         * Serialize this player from the point of view of @param player.
+         * If player is not specified, serialize completely.
+         */
+        serialize: function(player) {
             var playerRef = this;
-            return {
-                id: playerRef.getId(),
-                color: playerRef.getColor(),
-            };
+
+            if( typeof player === 'undefined' ) {
+                return {
+                    id: playerRef.getId(),
+                    color: playerRef.getColor(),
+                    exploredHexes: this.getExploredHexes()
+                };
+            }
+            else {
+                return {
+                    id: playerRef.getId(),
+                    color: playerRef.getColor()
+                }
+            }
+        },
+
+        /**
+         * Add a new visible hex.
+         */
+        addVisible: function(hex) {
+            var hexName = hex.getName();
+
+            this.attrs.visibleHexes.push(hexName);
+
+            // This first time a hex is seen, add it to the list of explored hexes.
+            if( exploredHexes.indexOf(hexName) < 0 ) {
+                exploredHexes.push(hexName);
+            }
         },
 
         getId: function() {
             return this._id;
         },
+
+        isExplored: function(hex) {
+            return this.getExploredHexes().indexOf(hex) > -1;
+        },
+
+        /**
+         * Test if a particular hex is visible to this player.
+         */
+        isVisible: function(hex) {
+            return this.attrs.visibleHexes.indexOf(hex.getName()) >= 0;
+        },
+
+        /**
+         * Replace the existing set of visible hexes with a new one.
+         */
+        setVisible: function(hexes) {
+            var self = this;
+            this.attrs.visibleHexes = [];
+            hexes.forEach(function(hex) {
+                self.attrs.visibleHexes.push(hex);
+            });
+        },
     };
-    Warlock.Global.addGetters(Warlock.Player, ['color']);
+    Warlock.Global.addGetters(Warlock.Player, ['color', 'exploredHexes']);
 
     
     /* Class for maps. */
@@ -663,7 +738,7 @@
             }
         },
 
-        serialize: function() {
+        serialize: function(player) {
             var mapref = this;
 
             var realHexes = this.getHexes();
@@ -672,7 +747,7 @@
                 var hexRow = [];
                 for( var col in realHexes[row] ) {
                     var hex = realHexes[row][col];
-                    hexRow.push(hex.serialize());
+                    hexRow.push(hex.serialize(player));
                 }
                 serHexes.push(hexRow);
             }
@@ -820,13 +895,20 @@
 
         },
 
-        serialize: function() {
+        serialize: function(player) {
             var self = this;
+
+            // If the hex has been explored, the terrain is still visible even if the
+            // player no longer has visibility to the hex.
+            var terrainSer = Warlock.UNEXPLORED;
+            if( player.isExplored(this) ) {
+                terrainSer = this.getTerrain().serialize();
+            }
 
             return {
                 row: self.getRow(),
                 col: self.getCol(),
-                terrain: self.getTerrain().serialize()
+                terrain: terrainSer,
             };
         },
 
@@ -975,10 +1057,11 @@
                 playerId: config.playerId,
 
                 actions: [],
-                move: -1,
+                move: -1,  // initialized later
+                hp: -1,    // initialized later
+                sight: config.sight,
 
                 /* Combat related values. */
-                hp: -1,
                 power: config.power,
                 powerKind: config.powerKind,
                 powerMod: config.powerMod || 0,
@@ -1154,7 +1237,7 @@
 
     };
 
-    Warlock.Global.addGetters(Warlock.Unit, ['name', 'playerId', 'actions', 'move', 'hp', 'power', 'powerKind', 'powerMod', 'damageMod', 'resistance', 'basicAttack', 'flying', 'hex', 'dest', 'base', 'marine']);
+    Warlock.Global.addGetters(Warlock.Unit, ['name', 'playerId', 'actions', 'move', 'hp', 'power', 'powerKind', 'powerMod', 'damageMod', 'resistance', 'basicAttack', 'flying', 'hex', 'dest', 'base', 'marine', 'sight']);
 
     Warlock.Global.addSetters(Warlock.Unit, ['dest']);
 
