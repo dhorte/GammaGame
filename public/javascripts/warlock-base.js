@@ -895,6 +895,7 @@
             this.type = 'Terrain';
             
             this.attrs = {
+                explored: (config != Warlock.UNEXPLORED),
                 height: config.height,
                 climate: config.climate,
                 veg: config.veg,
@@ -911,7 +912,7 @@
         },
     };
 
-    Warlock.Global.addGetters(Warlock.Terrain, ['height', 'climate', 'veg']);
+    Warlock.Global.addGetters(Warlock.Terrain, ['height', 'climate', 'veg', 'explored']);
 
 
 
@@ -1294,6 +1295,9 @@
                 // Raw terrain.
                 else if( height == Warlock.elevation.PLAINS ) return 1;
                 else if( height == Warlock.elevation.HILLS ) return 2;
+
+                // Unexplored.
+                else if( !terrain.getExplored() ) return Number.MAX_VALUE;
 
                 else throw "unknown terrain";
             }
