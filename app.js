@@ -171,7 +171,8 @@ app.io.route('ready', function(req) {
 
     // Save the session data, and send the game data to the client.
     req.session.save(function() {
-        var data = games[req.session.gameId].serialize(req.session.playerId);
+        var game = games[req.session.gameId];
+        var data = game.serialize(req.session.playerId);
         data.loginDate = req.session.loginDate;
         data.info = req.session.identifier;
         data.yourPlayerId = req.session.playerId;

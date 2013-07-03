@@ -47,14 +47,13 @@
  * Utilities
  */
 (function( Warlock, undefined ) {
-    Warlock.util = {};
-    
+
     /*
      * Create a dragBoundFunc that restricts movement to be within a rectangle, specified
      * by the bounds minx, miny, maxx, maxy.
      * @param pos is the pos that is usually passed to the dragBoundFunc.
      */
-    Warlock.util.adjustPos = function(pos, bounds) {
+    Warlock.Global.adjustPos = function(pos, bounds) {
         var lowerX = pos.x < bounds.minx ? bounds.minx : pos.x;
         var lowerY = pos.y < bounds.miny ? bounds.miny : pos.y;
         var newX = pos.x > bounds.maxx ? bounds.maxx : lowerX;
@@ -64,33 +63,6 @@
             y: newY
         };
     };
-
-    /**
-     * @param hex the center of the disc
-     * @param radius number of hexes away to collect (0 = only the center)
-     * @returns an array of hexes in the disc
-     */
-    Warlock.util.hexDisc = function(hex, radius) {
-        var disc = [];
-        var done = [hex];
-        var steps = { 0: [hex] };
-        
-        for( var i = 0; i <= radius; i ++ ) {
-            steps[i + 1] = [];
-            steps[i].forEach(function(curr) {
-                disc.push(curr);
-                Warlock.game.getMap().getNeighbors(curr).forEach(function(nb) {
-                    if( done.indexOf(nb) == -1 ) {
-                        steps[i + 1].push(nb);
-                        done.push(nb);
-                    }
-                });
-            });
-        }
-
-        return disc;
-    };
-
 
 })( window.Warlock = window.Warlock || {} );
 
@@ -116,6 +88,7 @@
             this._initMap();
 
             /* Initialize all of the units. */
+            console.log(this.game.getUnits());
             this.game.getUnits().forEach(function(unit) {
                 unit.initializeUI();
                 unit.getHex().ui.elem.add(unit.ui.elem);
@@ -252,7 +225,7 @@
             /* Update the drag settings for the map. */
             this.elems.mapLayer.setDraggable(true);
             this.elems.mapLayer.setDragBoundFunc(function(pos) {
-                return Warlock.util.adjustPos(pos, {
+                return Warlock.Global.adjustPos(pos, {
                     maxx: Math.floor( stage.getWidth() / 2 ),
                     maxy: Math.floor( stage.getHeight() / 2 ),
                     minx: 1.5 * stage.getWidth() - gameRef.elems.background.getWidth(),
@@ -450,7 +423,7 @@
         Warlock.ui.clearMoveOutlines();
 
         /* Add outlines to valid targets. */
-        var targetable = Warlock.util.hexDisc(unit.getHex(), action.getRange());
+        var targetable = Warlock.util.hexDisc(Warlock.game.getMap(), unit.getHex(), action.getRange());
         Warlock.ui.targetHexes = targetable.filter(function(hex) {
             if( hex.getUnit() == null ) {
                 return false;
