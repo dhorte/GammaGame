@@ -1,4 +1,11 @@
 (function() {
+
+    if (typeof require == 'function') { 
+        this['Log'] = require('./logger.js');
+    }
+    Log.set( 'serializer:debug' );
+
+
     if (!Array.prototype.indexOf) {
         Array.prototype.indexOf = function (searchElement /*, fromIndex */ ) {
             "use strict";
@@ -37,6 +44,9 @@
 
 (function(Warlock) {
     "use strict";
+
+    var ser_log = Log.get( "serializer" );
+    var gen_log = Log.get( "general" );
 
     Warlock.util = {};
 
@@ -201,7 +211,7 @@
          * has knowledge about.
          */
         serialize: function(playerId) {
-            console.log('Serializing Warlock.Game for player ' + playerId);
+            ser_log.coarse('Serializing Warlock.Game for player ' + playerId);
             var gameRef = this;
             var player = this.getPlayer(playerId);
 
@@ -215,15 +225,10 @@
                 playersDict[key] = players[key].serialize(player);
             }
 
-            console.log( 'Visible hexes' );
-            player.getVisibleHexes().forEach(function(hex) {
-                console.log( '  ' + hex.getName() );
-            })
-
             // Don't send information about units that the target player cannot see.
             var unitsArray = [];
             this.getUnits().forEach(function(unit) {
-                console.log( "  Considering " + unit.getName() + ' at ' + unit.getHex().getName() );
+                ser_log.fine( "  Considering " + unit.getName() + ' at ' + unit.getHex().getName() );
                 if( typeof player !== 'undefined' && player.isVisible(unit.getHex()) ) {
                     unitsArray.push(unit.serialize(player));
                 }
@@ -272,10 +277,7 @@
                 hex.setUnit(unit);
 
                 /* Update the player visibility for this unit. */
-                var player = this.getPlayer(unit.getPlayerId());
-                Warlock.util.hexDisc(map, hex, unit.getSight()).forEach(function(hex) {
-                    player.setVisible(hex);
-                });
+                this.updateVisibility(hex, unit);
 
                 /* Unit's destination. Requires hexes, which Unit cannot access. */
                 if( typeof unitConfig.dest === 'undefined' ) {
@@ -314,11 +316,30 @@
         },
 
         applyMoveResult: function(result) {
-            var hexes = this.getMap().getHexes();
+            var self = this;
+
+            // Apply the new status to the game.
+            var map = this.getMap();
             var unit = this.getUnit(result.unitId);
-            unit.setHex(hexes[result.terminator.row][result.terminator.col]);
-            unit.setDest(hexes[result.dest.row][result.dest.col]);
+            // var hexes = this.getMap().getHexes();
+            // unit.setHex(hexes[result.terminator.row][result.terminator.col]);
+            // unit.setDest(hexes[result.dest.row][result.dest.col]);
+            unit.setHex(map.getHex(result.terminator));
+            unit.setDest(map.getHex(result.dest));
             unit.setMove(result.move);
+
+            // Reveal newly explored hexes.
+            var player = this.getPlayer(unit.getPlayerId());
+            result.explored.forEach(function(hexData) {
+                var hex = map.getHex(hexData);
+                hex.update(hexData);
+            });
+
+            // Update visible hexes.
+            result.seen.forEach(function(pos) {
+                player.setVisible(map.getHex(pos));
+            });
+
             this.notify('unit-move', result);
         },
 
@@ -362,11 +383,12 @@
         },
 
         generatePath: function(unit, dest) {
-            // console.log( 'Generating path from ' + unit.getHex().getName() + ' to ' + dest.getName() );
+            var log = Log.get('astar');
+            log.coarse( 'Generating path from ' + unit.getHex().getName() + ' to ' + dest.getName() );
 
             // Find the shortest path based on the cameFrom data.
             var reconstructPath = function(cameFrom, current) {
-                // console.log( 'Reconstructing from: ' + current.getName() );
+                log.fine( 'Reconstructing from: ' + current.getName() );
 
                 if( current.getHashKey() in cameFrom ) {
                     var path = reconstructPath(cameFrom, cameFrom[current.getHashKey()]);
@@ -413,7 +435,7 @@
                 stepCount += 1;
 
                 var current = getNext();
-                // console.log( 'current: ' + current.getName() );
+                log.fine( 'current: ' + current.getName() );
                 if( current == dest ) {
                     // Remove the original point from the cameFrom dict, as that breaks
                     // the reconstructPath function.
@@ -424,7 +446,7 @@
                 openSet.splice(openSet.indexOf(current), 1);
                 this.getMap().getNeighbors(current).forEach(function(nb) {
                     var tentativeGScore = gScore[current.getHashKey()] + unit.moveCost(current, nb);
-                    // console.log( '  ' + nb.getName() + ' ' + tentativeGScore );
+                    log.fine( '  ' + nb.getName() + ' ' + tentativeGScore );
                     var isOpen = openSet.indexOf(nb) >= 0;
                     var nbKey = nb.getHashKey();
 
@@ -439,14 +461,9 @@
                     }
                 });
 
-                // console.log( 'open' );
-                // openSet.forEach(function(hex) {
-                //     var key = hex.getHashKey();
-                //     console.log( '  ' + hex.getName() + ' g=' + gScore[key] + ' f=' + fScore[key] + ' from=' + cameFrom[key].getName() );
-                // });
             }
 
-            console.log( 'A* failed to find a path.' );
+            log.coarse( 'A* failed to find a path.' );
         },
 
         getCurrentPlayer: function() {
@@ -499,8 +516,10 @@
                 unitId: unit.getId(),
                 dest: unit.getDest().getPos(),
                 move: unit.getMove(),
-                terminator: null,
-                path: null,
+                terminator: null,   // Where the unit is after the movement.
+                path: null,         // Array of positions crossed while moving.
+                seen: null,         // List of hexes made visible by unit movement.
+                explored: null,     // List of hexes explored by unit movement.
                 error: null
             };
 
@@ -534,10 +553,29 @@
                     }
 
                     // Push the actual path travelled into the result.
+                    // At the same time, list up revealed hexes.
                     result.path = [];
+                    var revealed = [];
+                    var player = this.getPlayer(unit.getPlayerId());
+                    var map = this.getMap();
                     path.splice(i);
                     path.forEach(function(hex) {
                         result.path.push(hex.getPos());
+                        Warlock.util.hexDisc(map, hex, unit.getSight()).forEach(function(seen_hex) {
+                            if( ! player.isVisible(seen_hex) && revealed.indexOf(hex) >= 0 ) {
+                                revealed.push(seen_hex);
+                            }
+                        });
+                    });
+
+                    // Push the revealed and explored hexes into the result.
+                    result.seen = [];
+                    result.explored = [];
+                    revealed.forEach(function(hex) {
+                        result.seen.push(hex.getPos());
+                        if( !player.isExplored(hex) ) {
+                            result.explored.push( hex.serialize() );
+                        };
                     });
 
                     // Mark the final position of the unit.
@@ -668,6 +706,14 @@
             };
 
         },
+
+        updateVisibility: function(hex, unit) {
+            var player = this.getPlayer(unit.getPlayerId());
+            var map = this.getMap();
+            Warlock.util.hexDisc(map, hex, unit.getSight()).forEach(function(hex) {
+                player.setVisible(hex);
+            });
+        },
     };
 
     Warlock.Global.addGetters(Warlock.Game, ['players', 'units', 'map', 'currentPlayerId']);
@@ -699,7 +745,7 @@
             var playerRef = this;
 
             if( typeof player === 'undefined' ) {
-                console.log('Serializing Warlock.Player, id = ' + this.getId());
+                ser_log.coarse('Serializing Warlock.Player, id = ' + this.getId());
                 return {
                     id: playerRef.getId(),
                     color: playerRef.getColor(),
@@ -707,7 +753,7 @@
                 };
             }
             else {
-                console.log('Serializing Warlock.Player, id = ' + this.getId() + ' for player ' + player.getId());
+                ser_log.coarse('Serializing Warlock.Player, id = ' + this.getId() + ' for player ' + player.getId());
                 return {
                     id: playerRef.getId(),
                     color: playerRef.getColor()
@@ -797,13 +843,14 @@
 
         serialize: function(player) {
             if( typeof player === 'undefined' ) {
-                console.log('Serializing Warlock.Map');
+                ser_log.coarse('Serializing Warlock.Map');
             }
             else {
-                console.log('Serializing Warlock.Map for player' + player.getId());
+                ser_log.coarse('Serializing Warlock.Map for player' + player.getId());
             }
             var mapref = this;
 
+            ser_log.medium('Serializing hexes.');
             var realHexes = this.getHexes();
             var serHexes = [];
             for( var row in realHexes ) {
@@ -961,10 +1008,10 @@
 
         serialize: function(player) {
             if( typeof player === 'undefined' ) {
-                console.log('Serializing ' + this.getName());
+                ser_log.fine('Serializing ' + this.getName());
             }
             else {
-                console.log('Serializing ' + this.getName() + ' for ' + player.getId());
+                ser_log.fine('Serializing ' + this.getName() + ' for ' + player.getId());
             }
 
             var self = this;
@@ -972,7 +1019,10 @@
             // If the hex has been explored, the terrain is still visible even if the
             // player no longer has visibility to the hex.
             var terrainSer = Warlock.UNEXPLORED;
-            if( typeof player !== 'undefined' && player.isExplored(this) ) {
+            if( typeof player === 'undefined' ) {
+                terrainSer = this.getTerrain().serialize();
+            }
+            else if( typeof player !== 'undefined' && player.isExplored(this) ) {
                 terrainSer = this.getTerrain().serialize();
             }
 
@@ -1067,6 +1117,17 @@
         setUnit: function(unit) {
             console.assert( unit == null || this.unit == null );
             this.attrs.unit = unit;
+        },
+
+        /**
+         * update(config)
+         * @param data serialization of hex data
+         * This function basically assumes that this hex was previous unexplored and
+         * that the data that describes the hex has just been received.
+         */
+        update: function(config) {
+            gen_log.coarse( "Updating hex information." );
+            this.attrs.terrain = new Warlock.Terrain(config.terrain);
         },
     };
     
@@ -1191,10 +1252,10 @@
 
         serialize: function(player) {
             if( player === 'undefined' ) {
-                console.log( 'Serializing Warlock.Unit' );
+                ser_log.medium( 'Serializing Warlock.Unit' );
             }
             else {
-                console.log( 'Serializing Warlock.Unit for ' + player.getId());
+                ser_log.medium( 'Serializing Warlock.Unit for ' + player.getId());
             }
 
             var self = this;
