@@ -590,7 +590,7 @@
             var minId = currentId;
             var nextId = 123456;
 
-            for( key in this.getPlayers() ) {
+            for( var key in this.getPlayers() ) {
                 if( key < minId ) {
                     minId = key;
                 }
