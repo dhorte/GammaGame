@@ -3,7 +3,8 @@
     if (typeof require == 'function') { 
         this['Log'] = require('./logger.js');
     }
-    Log.set( 'serializer:debug' );
+
+    Log.set( 'visibility:debug' );
 
 
     if (!Array.prototype.indexOf) {
@@ -321,9 +322,6 @@
             // Apply the new status to the game.
             var map = this.getMap();
             var unit = this.getUnit(result.unitId);
-            // var hexes = this.getMap().getHexes();
-            // unit.setHex(hexes[result.terminator.row][result.terminator.col]);
-            // unit.setDest(hexes[result.dest.row][result.dest.col]);
             unit.setHex(map.getHex(result.terminator));
             unit.setDest(map.getHex(result.dest));
             unit.setMove(result.move);
@@ -333,6 +331,7 @@
             result.explored.forEach(function(hexData) {
                 var hex = map.getHex(hexData);
                 hex.update(hexData);
+                self.notify('hex-explored', hex);
             });
 
             // Update visible hexes.
@@ -562,7 +561,7 @@
                     path.forEach(function(hex) {
                         result.path.push(hex.getPos());
                         Warlock.util.hexDisc(map, hex, unit.getSight()).forEach(function(seen_hex) {
-                            if( ! player.isVisible(seen_hex) && revealed.indexOf(hex) >= 0 ) {
+                            if( ! player.isVisible(seen_hex) && revealed.indexOf(hex) < 0 ) {
                                 revealed.push(seen_hex);
                             }
                         });

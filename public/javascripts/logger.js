@@ -54,7 +54,7 @@
         this.prefix = name + ": ";
         this.insert_prefix = "\n" + this.prefix;
         this.format = function(string) {
-            return self.prefix + string.replace(/\n/g, self.insert_prefix);
+            return self.prefix + string.toString().replace(/\n/g, self.insert_prefix);
         };
 
         this.debug = function(x) {

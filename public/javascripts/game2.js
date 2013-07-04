@@ -276,6 +276,10 @@
                 );
                 break;
 
+            case 'hex-explored':
+                data.updateUI();
+                break;
+
             case 'unit-death':
                 Messages.println( data.name + ' has died.' );
                 break;
@@ -512,6 +516,10 @@
         case Warlock.elevation.MOUNTAINS: return '#aaa';
         default: return 'magenta';
         }
+    };
+
+    Warlock.Hex.prototype.updateUI = function() {
+        this.ui.backgroundElem.setFill(this.getBackgroundColor());
     };
 
     Warlock.Hex.prototype.initializeUI = function() {
