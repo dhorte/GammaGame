@@ -46,8 +46,8 @@
 (function(Warlock) {
     "use strict";
 
-    var ser_log = Log.get( "serializer" );
-    var gen_log = Log.get( "general" );
+    var ser_log = Log.get("serializer");
+    var gen_log = Log.get("general");
 
     Warlock.util = {};
 
@@ -344,11 +344,13 @@
 
         /**
          * calcDamage(source, target, action, isAttacking)
+         * NOTE FROM ORIGINAL: Damage Taken = Floor( 2^(-Damage Resistance/50) - 1 )
          * @returns {
          *   total: total damage to apply
          *   types: Warlock.damageDict; damage by type
          *   global_defense: Dict( memo about each type of defense applied to all types )
          *   defense: Dict( memo about defense applied to each damage type )
+         * }
          */
         calcDamage: function(source, target, action, isAttacking) {
             var power = source.getPower();
@@ -1171,6 +1173,35 @@
     
     Warlock.Global.addGetters(Warlock.Action, ['name', 'kind', 'range', 'damageType', 'powerMod', 'effects']);
 
+
+    Warlock.City = function(config) {
+        this._initCity(config);
+    };
+
+    Warlock.City.prototype = {
+        _initCity: function(config) {
+            this.attrs = {
+                name: config.name,
+                playerId: config.playerId,
+
+                population: config.population || 1000,
+                buildings: config.buildings || [],
+
+                hex: null
+            };
+        },
+
+        getGrowth: function() {
+            return 100;
+        },
+
+        getSize: function() {
+            return Math.floor(this.getPopulation() / 1000);
+        },
+
+    };
+
+    Warlock.Global.addGetters(Warlock.City, ['buildings', 'hex', 'name', 'playerId', 'population']);
 
     Warlock.Unit = function(config) {
         this._initUnit(config);
